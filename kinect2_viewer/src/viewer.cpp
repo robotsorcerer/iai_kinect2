@@ -59,10 +59,15 @@
 
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+String Reye_cascade_name = "haarcascade_mcs_righteye.xml";
+String Leye_cascade_name = "haarcascade_mcs_lefteye.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
 CascadeClassifier face_cascade;
 CascadeClassifier eyes_cascade;
 CascadeClassifier nose_cascade;
+CascadeClassifier Reye_cascade;
+CascadeClassifier Leye_cascade;
+
 RNG rng(12345);
 
 //font properties
@@ -143,6 +148,24 @@ public:
   ~Receiver()
   {
   }
+  /*
+  projection.at<double>(0, 0) = 526.33795064532;
+  projection.at<double>(0, 1) = 0;
+  projection.at<double>(0, 2) = 478.4995813884854;
+  projection.at<double>(0, 3) = 0;
+  projection.at<double>(1, 0) = 0;
+  projection.at<double>(1, 1) = 526.6946594095425;
+  projection.at<double>(1, 2) = 263.8883319922702;
+  projection.at<double>(1, 3) = 0;
+  projection.at<double>(2, 0) = 0;
+  projection.at<double>(2, 1) = 0;
+  projection.at<double>(2, 2) = 1;
+  projection.at<double>(2, 3) = 0;
+  */
+  /*After calibration:   [526.33795064532, 0, 478.4995813884854, 0;
+                        0, 526.6946594095425, 263.8883319922702, 0;
+                        0, 0, 1, 0]      */
+  //std::cout << "projection: " << projection << std::endl;
 
   void run(const Mode mode)
   {
@@ -233,6 +256,8 @@ private:
       imageViewerThread.join();
     }
   }
+
+  double projection[3][4] = {{0.0}};
 
   void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
                 const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth)
@@ -326,6 +351,7 @@ private:
         }
         break;
       }
+      //delete projection;
     }
     cv::destroyAllWindows();
     cv::waitKey(100);
@@ -343,7 +369,9 @@ void detectAndDisplay( Mat detframe )
   //load cascades
   face_cascade.load( face_cascade_name );
   eyes_cascade.load( eyes_cascade_name );
-  nose_cascade.load( nose_cascade_name );  
+  nose_cascade.load( nose_cascade_name ); 
+  Reye_cascade.load( Reye_cascade_name ); 
+  Leye_cascade.load( Leye_cascade_name );
 
    //-- Detect faces
   face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
@@ -366,28 +394,19 @@ void detectAndDisplay( Mat detframe )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        //circle( detframe, eye_left, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect left eye
-        //circle( detframe, eye_right, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect right eye
         circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        //circle( detframe, eye_left, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        //circle( detframe, eye_right, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
     //separate coordinates for easy display on cv window
-        /*
-        int left_x = eye_left.x;
-        int left_y = eye_left.y;
-        int right_x = eye_right.x;
-        int right_y = eye_right.y;
-        */
         int eye_x = eye_center.x;
         int eye_y = eye_center.y;
-    //print to face detection screen  
+    //print to face detection screen 
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
         sprintf(texty, "eye center, y (mm): %d", eye_y);         
         //putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
+        
       }
         //cv::line(undistorted, cv::Point(400, 0), cv::Point(400, 600), CV_RGB(255,0,0), 1, 8, 0);
     //   }       
@@ -693,6 +712,22 @@ int main(int argc, char **argv)
   std::cout << "topic depth: " << topicDepth << std::endl;
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
+
+  //Write out projection matrix
+      cv::Mat projection      =  cv::Mat::zeros(3, 4, CV_64F);
+      projection.at<double >(0, 0) = 526.33795064532;
+      projection.at<double >(0, 1) = 0.0;
+      projection.at<double >(0, 2) = 478.4995813884854;
+      projection.at<double >(0, 3) = 0.0;
+      projection.at<double >(1, 0) = 0.0;
+      projection.at<double >(1, 1) = 526.6946594095425;
+      projection.at<double >(1, 2) = 263.8883319922702;
+      projection.at<double >(1, 3) = 0.0;
+      projection.at<double >(2, 0) = 0.0;
+      projection.at<double >(2, 1) = 0.0;
+      projection.at<double >(2, 2) = 1.0;
+      projection.at<double >(2, 3) = 0.0;
+      cout << "projection: " << projection << std::endl; 
 
   std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);

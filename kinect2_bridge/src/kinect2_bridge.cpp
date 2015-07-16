@@ -703,6 +703,7 @@ private:
     {
       cameraInfo.P[i] = *itP;
     }
+   std::cout << "projection: " << *itP << std::endl; 
 
     cameraInfo.distortion_model = "plumb_bob";
     cameraInfo.D.resize(distortion.cols);
