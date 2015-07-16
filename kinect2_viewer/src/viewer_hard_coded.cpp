@@ -58,6 +58,7 @@
 //-- Note, either copy these two files from opencv/data/haarscascades to your current folder, or change these locations
 
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
+//String eyes_cascade_name = "haarcascade_eye.xml";   //use this if you want to detect a human eye 
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
 CascadeClassifier face_cascade;
@@ -285,7 +286,6 @@ private:
         ++frameCount;
         now = std::chrono::high_resolution_clock::now();
         double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
-        
         if(elapsed >= 1.0)
         {
           fps = frameCount / elapsed;
@@ -348,7 +348,6 @@ void detectAndDisplay( Mat detframe )
    //-- Detect faces
   face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-   #pragma omp parallel for 
    for( size_t i = 0; i < faces.size(); i++ )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
@@ -361,38 +360,28 @@ void detectAndDisplay( Mat detframe )
     //-- In each face, detect eyes
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
-        Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        //circle( detframe, eye_left, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect left eye
-        //circle( detframe, eye_right, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect right eye
-        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        //circle( detframe, eye_left, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        //circle( detframe, eye_right, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+        Point eye_left( faces[i].x + eyes[j].x + eyes[j].width/3.8,  faces[i].y + eyes[j].y + eyes[j].width/2.8);
+        Point eye_right( faces[i].x + eyes[j].x + eyes[j].width/1.3, faces[i].y + eyes[j].y + eyes[j].height/2.8 );
+        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.09 );
+        circle( detframe, eye_left, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect left eye
+        circle( detframe, eye_right, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect right eye
     //separate coordinates for easy display on cv window
-        /*
         int left_x = eye_left.x;
         int left_y = eye_left.y;
         int right_x = eye_right.x;
         int right_y = eye_right.y;
-        */
-        int eye_x = eye_center.x;
-        int eye_y = eye_center.y;
-    //print to face detection screen  
-        char textx[255], texty[255];
-        sprintf(textx, "eye center, x (mm): %d", eye_x);
-        sprintf(texty, "eye center, y (mm): %d", eye_y);         
-        //putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
+    //print to face detection screen
+        char texti[255], texto[255];
+        sprintf(texti, "Left eye center (mm): %d, %d", left_x, left_y);
+        sprintf(texto, "Right eye center(mm): %d, %d", right_x, right_y);         
+        putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+        putText(detframe, texti, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
+        putText(detframe, texto, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
       }
-        //cv::line(undistorted, cv::Point(400, 0), cv::Point(400, 600), CV_RGB(255,0,0), 1, 8, 0);
-    //   }       
     }
-   cv::imshow( "Face and Features Viewer", detframe );
+   imshow( "Face and Features Viewer", detframe );
 }
 
 

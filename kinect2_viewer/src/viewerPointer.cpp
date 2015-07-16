@@ -50,6 +50,7 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include <kinect2_bridge/kinect2_definitions.h>
+//#include <boost/bind.hpp>                   //to pass additional parameters to my callback
 
  using namespace std;
  using namespace cv;
@@ -73,6 +74,7 @@ const int lineText = 1;
 const int font = cv::FONT_HERSHEY_SIMPLEX;
 
 std::ostringstream oss;
+std::string path;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe );
@@ -90,7 +92,7 @@ public:
 private:
   std::mutex lock;
 
-  const std::string topicColor, topicDepth;
+  const std::string topicColor, topicDepth, topicProjection;
   const bool useExact, useCompressed;
 
   bool updateImage, updateCloud;
@@ -101,16 +103,18 @@ private:
 
   cv::Mat color, depth;
   cv::Mat cameraMatrixColor, cameraMatrixDepth;
+  cv::Mat cameraMatrixProjection;
   cv::Mat lookupX, lookupY;
 
-  typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ExactSyncPolicy;
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ApproximateSyncPolicy;
+  typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo> ExactSyncPolicy;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo> ApproximateSyncPolicy;
 
   ros::NodeHandle nh;             //starts the ROS cpp node, the 1st calls ros::start() and the last calls ros::shutdown()
   ros::AsyncSpinner spinner;
   image_transport::ImageTransport it;
   image_transport::SubscriberFilter *subImageColor, *subImageDepth;
   message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoColor, *subCameraInfoDepth;
+  //message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoProjection;
 
   message_filters::Synchronizer<ExactSyncPolicy> *syncExact;
   message_filters::Synchronizer<ApproximateSyncPolicy> *syncApproximate;
@@ -124,13 +128,14 @@ private:
   std::vector<int> params;
 
 public:
-  Receiver(const std::string &topicColor, const std::string &topicDepth, const bool useExact, const bool useCompressed)
-    : topicColor(topicColor), topicDepth(topicDepth), useExact(useExact), useCompressed(useCompressed),
+  Receiver(const std::string &topicColor, const std::string &topicDepth/*, const std::string &topicProjection*/, const bool useExact, const bool useCompressed)
+    : topicColor(topicColor), topicDepth(topicDepth), topicProjection(topicProjection), useExact(useExact), useCompressed(useCompressed),
       updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),
       nh("~"), spinner(0), it(nh), mode(CLOUD)
   {
     cameraMatrixColor = cv::Mat::zeros(3, 3, CV_64F);
     cameraMatrixDepth = cv::Mat::zeros(3, 3, CV_64F);
+    cameraMatrixProjection = cv::Mat::zeros(3, 3, CV_64F);
     params.push_back(cv::IMWRITE_JPEG_QUALITY);
     params.push_back(100);
     params.push_back(cv::IMWRITE_PNG_COMPRESSION);
@@ -158,22 +163,24 @@ private:
 
     std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
     std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
+    //std::string topicCameraInfoProjection = topicProjection.substr(0, topicProjection.rfind('/')) + "/camera_info";
 
     image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
     subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
     subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
-    subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
-    subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
+    subCameraInfoColor      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
+    subCameraInfoDepth      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
+    //subCameraInfoProjection = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoProjection, queueSize);
 
     if(useExact)
     {
-      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
-      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
+      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth/*, *subCameraInfoProjection*/);
+      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4, _5));
     }
     else
     {
-      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
-      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
+      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth/*, *subCameraInfoProjection*/);
+      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4, _5));
     }
 
     spinner.start();
@@ -226,6 +233,7 @@ private:
     delete subImageDepth;
     delete subCameraInfoColor;
     delete subCameraInfoDepth;
+    //delete subCameraInfoProjection;
 
     running = false;
     if(mode == BOTH)
@@ -235,12 +243,14 @@ private:
   }
 
   void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
-                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth)
+                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth/*,
+               const sensor_msgs::CameraInfo::ConstPtr cameraInfoProjection*/)
   {
     cv::Mat color, depth;
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
+    //readCameraInfo(cameraInfoProjection, cameraMatrixProjection);
     readImage(imageColor, color);
     readImage(imageDepth, depth);
 
@@ -331,7 +341,7 @@ private:
     cv::waitKey(100);
   }
 
-  //face detection
+    //face detection
 void detectAndDisplay( Mat detframe )
 {
   std::vector<Rect> faces;
@@ -353,48 +363,35 @@ void detectAndDisplay( Mat detframe )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
-      rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
+      rectangle(detframe, vertex_one, vertex_two, Scalar(150, 255, 0), 2, 8, 0 );
 
       Mat faceROI = frame_gray( faces[i] );
       std::vector<Rect> eyes, noses;
 
     //-- In each face, detect eyes
-      eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+      eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(35, 35) );
 
       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        //circle( detframe, eye_left, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect left eye
-        //circle( detframe, eye_right, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect right eye
-        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        //circle( detframe, eye_left, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        //circle( detframe, eye_right, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+        circle( detframe, eye_center, radius, Scalar( 150, 255, 0 ), 2, 8, 0 ); 
+        circle( detframe, eye_center, 4, Scalar(255,255,0), CV_FILLED, 8, 0);         
+        //line(detframe, eye_center, Point(50, 60), CV_RGB(255,0,0), 1, 8, 0);
     //separate coordinates for easy display on cv window
-        /*
-        int left_x = eye_left.x;
-        int left_y = eye_left.y;
-        int right_x = eye_right.x;
-        int right_y = eye_right.y;
-        */
         int eye_x = eye_center.x;
         int eye_y = eye_center.y;
     //print to face detection screen  
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
         sprintf(texty, "eye center, y (mm): %d", eye_y);         
-        //putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
-      }
-        //cv::line(undistorted, cv::Point(400, 0), cv::Point(400, 600), CV_RGB(255,0,0), 1, 8, 0);
-    //   }       
+      }    
     }
    cv::imshow( "Face and Features Viewer", detframe );
 }
-
 
   void cloudViewer()
   {
@@ -479,7 +476,17 @@ void detectAndDisplay( Mat detframe )
       *itC = cameraInfo->K[i];
     }
   }
-
+/*
+  void readProjectionInfo(const sensor_msgs::CameraInfo::ConstPtr cameraInfo, cv::Mat &projection) const
+  {
+    double *itP = projection.ptr<double>(0, 0);
+    for(size_t i = 0; i < 12; ++i, ++itP)
+    {
+      *itP = cameraInfo->P[i] ;
+    }
+    cout << "Projection Matrix: " << projection << endl;
+  }
+*/
   void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
@@ -496,8 +503,8 @@ void detectAndDisplay( Mat detframe )
         *itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
       }
     }
-
-    cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
+    //cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
+    cv::applyColorMap(tmp, out, COLORMAP_OCEAN);      //looks better
   }
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
@@ -508,7 +515,7 @@ void detectAndDisplay( Mat detframe )
     for(int r = 0; r < inC.rows; ++r)
     {
       const cv::Vec3b
-      *itC = inC.ptr<cv::Vec3b>(r),
+      *itC = inC.ptr<cv::Vec3b>(r),       //*itC is pointer to camera fx, cx matrix elements #L465
       *itD = inD.ptr<cv::Vec3b>(r);
       cv::Vec3b *itO = out.ptr<cv::Vec3b>(r);
 
@@ -700,5 +707,3 @@ int main(int argc, char **argv)
   ros::shutdown();
   return 0;
 }
-
-

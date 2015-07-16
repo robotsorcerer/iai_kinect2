@@ -60,9 +60,11 @@
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
+String mouth_cascade_name = "haarcascade_mcs_mouth.xml";
 CascadeClassifier face_cascade;
 CascadeClassifier eyes_cascade;
 CascadeClassifier nose_cascade;
+CascadeClassifier mouth_cascade;
 RNG rng(12345);
 
 //font properties
@@ -76,6 +78,11 @@ std::ostringstream oss;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe );
+
+std::vector<cv::Rect_<int> > detectFaces(Mat detframe);
+std::vector<cv::Rect_<int> > detectMouth( Mat detframe);
+std::vector<cv::Rect_<int> > detectNose(Mat detframe);
+std::vector<cv::Rect_<int> > detectEyes(Mat detframe);
 
 class Receiver
 {
@@ -298,10 +305,14 @@ private:
         dispDepth(depth, depthDisp, 12000.0f);
         combine(color, depthDisp, combined);
 
-        //detect faces, eyes and nose
         detframe = combined.clone();   //create deep clone of image for the face detection
-        detectAndDisplay( detframe );   //currently reduces native rate to 5.5Hz
 
+      //load cascades
+      face_cascade.load( face_cascade_name );
+      eyes_cascade.load( eyes_cascade_name );
+      nose_cascade.load( nose_cascade_name ); 
+
+        detectAllFeatures( detframe );
         cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
         cv::imshow("Image Viewer", combined);
       }
@@ -340,61 +351,130 @@ void detectAndDisplay( Mat detframe )
   cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
   equalizeHist( frame_gray, frame_gray );
 
-  //load cascades
-  face_cascade.load( face_cascade_name );
-  eyes_cascade.load( eyes_cascade_name );
-  nose_cascade.load( nose_cascade_name );  
-
-   //-- Detect faces
+  //-- Detect faces
   face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-
-   #pragma omp parallel for 
-   for( size_t i = 0; i < faces.size(); i++ )
+  
+  for( size_t i = 0; i < faces.size(); i++ )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
       rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
 
       Mat faceROI = frame_gray( faces[i] );
-      std::vector<Rect> eyes, noses;
 
-    //-- In each face, detect eyes
-      eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-
-      #pragma omp parallel for 
-      for( size_t j = 0; j < eyes.size(); j++ )
-       {
-        Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        //circle( detframe, eye_left, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect left eye
-        //circle( detframe, eye_right, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); //detect right eye
-        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        //circle( detframe, eye_left, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        //circle( detframe, eye_right, 2.5, Scalar(255,255,255), CV_FILLED, 8, 0);  //draw circle
-        circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
-    //separate coordinates for easy display on cv window
-        /*
-        int left_x = eye_left.x;
-        int left_y = eye_left.y;
-        int right_x = eye_right.x;
-        int right_y = eye_right.y;
-        */
-        int eye_x = eye_center.x;
-        int eye_y = eye_center.y;
-    //print to face detection screen  
-        char textx[255], texty[255];
-        sprintf(textx, "eye center, x (mm): %d", eye_x);
-        sprintf(texty, "eye center, y (mm): %d", eye_y);         
-        //putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
-      }
-        //cv::line(undistorted, cv::Point(400, 0), cv::Point(400, 600), CV_RGB(255,0,0), 1, 8, 0);
-    //   }       
+      detectMouth( detframe );
+      //detectNose ( detframe );
     }
    cv::imshow( "Face and Features Viewer", detframe );
 }
 
+  //face detection
+std::vector<cv::Rect_<int> > detectFaces( Mat detframe )
+{
+  std::vector<Rect> faces;
+  Mat frame_gray;
+
+  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+  equalizeHist( frame_gray, frame_gray );
+
+  //-- Detect faces
+  face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+
+  for( size_t i = 0; i < faces.size(); i++ )
+    {
+      Point vertex_one ( faces[i].x, faces[i].y);      
+      Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
+      rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
+      Mat faceROI = frame_gray( faces[i] );
+    }
+    return faces;
+   //cv::imshow( "Face and Features Viewer", detframe );
+}
+
+std::vector<cv::Rect_<int> > detectEyes ( Mat detframe )
+{
+  std::vector<Rect> eyes;
+  Mat frame_gray;
+
+  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+  equalizeHist( frame_gray, frame_gray );
+
+  eyes_cascade.detectMultiScale( frame_gray, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+      
+    for( size_t k = 0; k < eyes.size(); k++ )
+      {
+        Point eye_center( eyes[k].x + eyes[k].width/2, eyes[k].y + eyes[k].height/2 );
+        int radius = cvRound( (eyes[k].width + eyes[k].height)*0.25 );
+        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
+        circle( detframe, eye_center, 5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+/*
+        //separate coordinates for easy display on cv window
+        int eye_x = eye_center.x;
+        int eye_y = eye_center.y;
+        //print to face detection screen  
+        char textx[255], texty[255];
+        sprintf(textx, "eye center, x (mm): %d", eye_x);
+        sprintf(texty, "eye center, y (mm): %d", eye_y);         
+        putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
+        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
+*/
+      }  
+      return eyes;
+}
+
+std::vector<cv::Rect_<int> > detectNose ( Mat detframe )
+{
+  std::vector<Rect> noses;
+  Mat frame_gray;
+
+  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+  equalizeHist( frame_gray, frame_gray );
+
+  nose_cascade.detectMultiScale( frame_gray, noses, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+      
+    for( size_t k = 0; k < noses.size(); k++ )
+      {
+        Point nose_center( noses[k].x + noses[k].width/2, noses[k].y + noses[k].height/2 );
+        circle( detframe, nose_center, 5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+      }  
+  return noses;
+}
+
+std::vector<cv::Rect_<int> > detectMouth ( Mat detframe )
+{
+  std::vector<Rect> mouths;
+  Mat frame_gray;
+
+  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+  equalizeHist( frame_gray, frame_gray );
+
+  mouth_cascade.detectMultiScale( frame_gray, mouths, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+      
+    for( size_t k = 0; k < mouths.size(); k++ )
+      {
+        Point mouths_center( mouths[k].x + mouths[k].width/2, mouths[k].y + mouths[k].height/2 );
+        circle( detframe, mouths_center, 5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+      }  
+  return mouths;
+}
+
+void detectAllFeatures( Mat detframe )
+{
+  Mat faceFrame, eyesFrame, noseFrame, mouthFrame, allFeatures;
+  //Basically, we apply the masks to the face features we want and do a 
+  //copy of masked features for the next round of detection
+  std::vector<cv::Rect_<int> > mouthMask = detectMouth( detframe );
+  detframe.copyTo(mouthFrame, mouthMask); 
+  std::vector<cv::Rect_<int> > noseMask  =  detectNose( mouthFrame );
+  mouthFrame.copyTo(eyesFrame, noseMask); 
+  std::vector<cv::Rect_<int> > eyesMask  =  detectEyes( eyesFrame );
+  eyesFrame.copyTo(faceFrame, eyesMask); 
+  std::vector<cv::Rect_<int> > faceMask  =  detectFaces( faceFrame );
+  faceFrame.copyTo(allFeatures, faceMask);
+
+  cv::namedWindow("Badass Detection");
+  cv::imshow("Badass Detection", allFeatures);
+}
 
   void cloudViewer()
   {
@@ -502,6 +582,7 @@ void detectAndDisplay( Mat detframe )
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
   {
+    //out = cv::Mat(inC.rows, inC.cols, CV_16UC3); //due to mask function
     out = cv::Mat(inC.rows, inC.cols, CV_8UC3);
 
     #pragma omp parallel for //openmp parallelization so you don't have to rewrite existing code.
@@ -621,7 +702,7 @@ int main(int argc, char **argv)
   {
     return 0;
   }
-
+        
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
   std::string topicDepth = K2_TOPIC_QHD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
@@ -642,7 +723,7 @@ int main(int argc, char **argv)
     else if(param == "qhd")
     {
       topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
-      topicDepth = K2_TOPIC_QHD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;
+      topicDepth = K2_TOPIC_QHD K2_TOPIC_IMAGE_DEPTH K2_TOPIC_IMAGE_RECT;      
     }
     
     else if(param == "hd")
