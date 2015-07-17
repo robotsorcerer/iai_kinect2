@@ -81,6 +81,7 @@ std::ostringstream oss;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe );
+void reconstruct( Point eye_center );
 
 class Receiver
 {
@@ -148,24 +149,6 @@ public:
   ~Receiver()
   {
   }
-  /*
-  projection.at<double>(0, 0) = 526.33795064532;
-  projection.at<double>(0, 1) = 0;
-  projection.at<double>(0, 2) = 478.4995813884854;
-  projection.at<double>(0, 3) = 0;
-  projection.at<double>(1, 0) = 0;
-  projection.at<double>(1, 1) = 526.6946594095425;
-  projection.at<double>(1, 2) = 263.8883319922702;
-  projection.at<double>(1, 3) = 0;
-  projection.at<double>(2, 0) = 0;
-  projection.at<double>(2, 1) = 0;
-  projection.at<double>(2, 2) = 1;
-  projection.at<double>(2, 3) = 0;
-  */
-  /*After calibration:   [526.33795064532, 0, 478.4995813884854, 0;
-                        0, 526.6946594095425, 263.8883319922702, 0;
-                        0, 0, 1, 0]      */
-  //std::cout << "projection: " << projection << std::endl;
 
   void run(const Mode mode)
   {
@@ -257,8 +240,6 @@ private:
     }
   }
 
-  double projection[3][4] = {{0.0}};
-
   void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
                 const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth)
   {
@@ -266,6 +247,8 @@ private:
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
+    //cout<< "Color Matrix: " << cameraMatrixColor << endl;
+    //cout<< "Depth Matrix: " << cameraMatrixDepth << endl;
     readImage(imageColor, color);
     readImage(imageDepth, depth);
 
@@ -288,6 +271,7 @@ private:
   void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined, detframe;
+    Point eye_center;
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
     size_t frameCount = 0;
@@ -357,6 +341,9 @@ private:
     cv::waitKey(100);
   }
 
+  Point* peye_center = NULL;
+  //peye_center = new Point;
+
   //face detection
 void detectAndDisplay( Mat detframe )
 {
@@ -388,32 +375,39 @@ void detectAndDisplay( Mat detframe )
 
     //-- In each face, detect eyes
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+      
+      int* peye_x = 0; //int* peye_y = 0;  
 
       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
-        Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
+        Point* peye_center, eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
         circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
-    //separate coordinates for easy display on cv window
-        int eye_x = eye_center.x;
-        int eye_y = eye_center.y;
-    //print to face detection screen 
+        
+        int eye_x = eye_center.x;        
+        int eye_y = eye_center.y;        
+
+        peye_x = new int (eye_x);          //allocate an int and initialize it
+
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
-        sprintf(texty, "eye center, y (mm): %d", eye_y);         
-        //putText(detframe, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+        sprintf(texty, "eye center, y (mm): %d", eye_y); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
-        
-      }
-        //cv::line(undistorted, cv::Point(400, 0), cv::Point(400, 600), CV_RGB(255,0,0), 1, 8, 0);
-    //   }       
+        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
+        cout << "*peye_x: " << *peye_x <<endl;
+        //cout << "*peye_center: " << *peye_center << endl; 
+              
+        reconstruct(eye_x, eye_y);
+      } 
+      //cout << "*peye_x: " << *peye_x <<endl;
+      /*if ( eye_x != 0) {  reconstruct( *peye_center);   } 
+      else { printf(" --(!) No captured eyes!");} */
+      delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
 }
-
 
   void cloudViewer()
   {
@@ -572,6 +566,7 @@ void detectAndDisplay( Mat detframe )
         itP->r = itC->val[2];
         itP->a = 255;
       }
+      cout << "itP->z: " << itP->z << endl;
     }
   }
 
@@ -602,7 +597,7 @@ void detectAndDisplay( Mat detframe )
     const float fx = 1.0f / cameraMatrixColor.at<double>(0, 0);
     const float fy = 1.0f / cameraMatrixColor.at<double>(1, 1);
     const float cx = cameraMatrixColor.at<double>(0, 2);
-    const float cy = cameraMatrixColor.at<double>(1, 2);
+    const float cy = cameraMatrixColor.at<double>(1, 2);   
     float *it;
 
     lookupY = cv::Mat(1, height, CV_32F);
@@ -618,6 +613,66 @@ void detectAndDisplay( Mat detframe )
     {
       *it = (c - cx) * fx;
     }
+  }
+
+  cv::Mat rotation = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat translation = cv::Mat::zeros(3, 1, CV_64F);
+  cv::Mat projection = cv::Mat::zeros(3, 4, CV_64F);
+
+  cv::Mat KM = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat xyImagePlane = cv::Mat::ones(3,1, CV_64F); //x=y=1
+
+  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);
+
+  void reconstruct(int& eye_x, int& eye_y)
+  {
+
+    //Couldn't figure a way to retrieve the projection from kinect2_bridge
+    projection.at<double >(0, 0) = 526.33795064532;
+    projection.at<double >(0, 1) = 0.0;
+    projection.at<double >(0, 2) = 478.4995813884854;
+    projection.at<double >(0, 3) = 0.0;
+    projection.at<double >(1, 0) = 0.0;
+    projection.at<double >(1, 1) = 526.6946594095425;
+    projection.at<double >(1, 2) = 263.8883319922702;
+    projection.at<double >(1, 3) = 0.0;
+    projection.at<double >(2, 0) = 0.0;
+    projection.at<double >(2, 1) = 0.0;
+    projection.at<double >(2, 2) = 1.0;
+    projection.at<double >(2, 3) = 0.0;
+
+    rotation.at<double >(0, 0) = 0.9999839890693748;
+    rotation.at<double >(0, 1) = -0.00220878479974752;
+    rotation.at<double >(0, 2) = 0.005209882398764278;
+    rotation.at<double >(1, 0) = 0.002169762562952003;
+    rotation.at<double >(1, 1) = 0.9999696416803922;
+    rotation.at<double >(1, 2) = 0.007483839122310252;
+    rotation.at<double >(2, 0) = -0.005226254425586405;
+    rotation.at<double >(2, 1) = -0.007472415091295038;
+    rotation.at<double >(2, 2) = 0.9999584237743999;
+
+    translation.at<double >(0, 0) = -0.04598755491059946;
+    translation.at<double >(1, 0) = 9.878938204711128e-05;
+    translation.at<double >(2, 0) = 0.005470134429191416;
+
+    cout << "projection: " << projection << endl;
+    cout << "rotation: " << rotation << endl;
+    cout << "translation: " << translation << endl;
+
+    xyImagePlane.at<int>(0,0) = eye_x;
+    xyImagePlane.at<int>(1,0) = eye_y;
+
+    cv::Mat RinvMinv, RinvT;
+    double s;
+
+    RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
+    RinvT = rotation.inv() * translation;
+    s = 300 + RinvT.at<double>(2,0);   //picking 300 as an arbitrary point
+    s /= RinvMinv.at<double>(2,0);
+
+    worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
+
+    cout << "world coordinates = " << worldcoordinates << endl;
   }
 };
 
@@ -713,25 +768,8 @@ int main(int argc, char **argv)
 
   Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
 
-  //Write out projection matrix
-      cv::Mat projection      =  cv::Mat::zeros(3, 4, CV_64F);
-      projection.at<double >(0, 0) = 526.33795064532;
-      projection.at<double >(0, 1) = 0.0;
-      projection.at<double >(0, 2) = 478.4995813884854;
-      projection.at<double >(0, 3) = 0.0;
-      projection.at<double >(1, 0) = 0.0;
-      projection.at<double >(1, 1) = 526.6946594095425;
-      projection.at<double >(1, 2) = 263.8883319922702;
-      projection.at<double >(1, 3) = 0.0;
-      projection.at<double >(2, 0) = 0.0;
-      projection.at<double >(2, 1) = 0.0;
-      projection.at<double >(2, 2) = 1.0;
-      projection.at<double >(2, 3) = 0.0;
-      cout << "projection: " << projection << std::endl; 
-
   std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
-
   ros::shutdown();
   return 0;
 }

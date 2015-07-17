@@ -114,7 +114,7 @@ private:
   image_transport::ImageTransport it;
   image_transport::SubscriberFilter *subImageColor, *subImageDepth;
   message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoColor, *subCameraInfoDepth;
-  //message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoProjection;
+  message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoProjection;
 
   message_filters::Synchronizer<ExactSyncPolicy> *syncExact;
   message_filters::Synchronizer<ApproximateSyncPolicy> *syncApproximate;
@@ -128,7 +128,7 @@ private:
   std::vector<int> params;
 
 public:
-  Receiver(const std::string &topicColor, const std::string &topicDepth/*, const std::string &topicProjection*/, const bool useExact, const bool useCompressed)
+  Receiver(const std::string &topicColor, const std::string &topicDepth, const std::string &topicProjection, const bool useExact, const bool useCompressed)
     : topicColor(topicColor), topicDepth(topicDepth), topicProjection(topicProjection), useExact(useExact), useCompressed(useCompressed),
       updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),
       nh("~"), spinner(0), it(nh), mode(CLOUD)
@@ -163,14 +163,14 @@ private:
 
     std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
     std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
-    //std::string topicCameraInfoProjection = topicProjection.substr(0, topicProjection.rfind('/')) + "/camera_info";
+    std::string topicCameraInfoProjection = topicProjection.substr(0, topicProjection.rfind('/')) + "/camera_info";
 
     image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
     subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
     subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
     subCameraInfoColor      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
     subCameraInfoDepth      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
-    //subCameraInfoProjection = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoProjection, queueSize);
+    subCameraInfoProjection = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoProjection, queueSize);
 
     if(useExact)
     {
@@ -243,14 +243,14 @@ private:
   }
 
   void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
-                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth/*,
-               const sensor_msgs::CameraInfo::ConstPtr cameraInfoProjection*/)
+                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth,
+                const sensor_msgs::CameraInfo::ConstPtr cameraInfoProjection)
   {
     cv::Mat color, depth;
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
-    //readCameraInfo(cameraInfoProjection, cameraMatrixProjection);
+    readCameraInfo(cameraInfoProjection, cameraMatrixProjection);
     readImage(imageColor, color);
     readImage(imageDepth, depth);
 
@@ -699,7 +699,7 @@ int main(int argc, char **argv)
   std::cout << "topic color: " << topicColor << std::endl;
   std::cout << "topic depth: " << topicDepth << std::endl;
 
-  Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
+  Receiver receiver(topicColor, topicDepth, topicProjection, useExact, useCompressed);
 
   std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
