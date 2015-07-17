@@ -345,26 +345,26 @@ private:
   //peye_center = new Point;
 
   //face detection
-void detectAndDisplay( Mat detframe )
-{
-  std::vector<Rect> faces;
-  Mat frame_gray;
+  void detectAndDisplay( Mat detframe )
+  {
+    std::vector<Rect> faces;
+    Mat frame_gray;
 
-  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
-  equalizeHist( frame_gray, frame_gray );
+    cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+    equalizeHist( frame_gray, frame_gray );
 
-  //load cascades
-  face_cascade.load( face_cascade_name );
-  eyes_cascade.load( eyes_cascade_name );
-  nose_cascade.load( nose_cascade_name ); 
-  Reye_cascade.load( Reye_cascade_name ); 
-  Leye_cascade.load( Leye_cascade_name );
+    //load cascades
+    face_cascade.load( face_cascade_name );
+    eyes_cascade.load( eyes_cascade_name );
+    nose_cascade.load( nose_cascade_name ); 
+    Reye_cascade.load( Reye_cascade_name ); 
+    Leye_cascade.load( Leye_cascade_name );
 
-   //-- Detect faces
-  face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+     //-- Detect faces
+    face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-   #pragma omp parallel for 
-   for( size_t i = 0; i < faces.size(); i++ )
+     #pragma omp parallel for 
+    for( size_t i = 0; i < faces.size(); i++ )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
@@ -402,7 +402,60 @@ void detectAndDisplay( Mat detframe )
       delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
-}
+  }
+  
+  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
+  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat KM              = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat xyImagePlane    = cv::Mat::ones(3,1, CV_64F); //x=y=1
+  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
+  double s;
+
+  void reconstruct(int& eye_x, int& eye_y)
+  {
+    //Couldn't figure a better way to retrieve the projection from kinect2_bridge :(
+    projection.at<double >(0, 0) = 526.33795064532;
+    projection.at<double >(0, 1) = 0.0;
+    projection.at<double >(0, 2) = 478.4995813884854;
+    projection.at<double >(0, 3) = 0.0;
+    projection.at<double >(1, 0) = 0.0;
+    projection.at<double >(1, 1) = 526.6946594095425;
+    projection.at<double >(1, 2) = 263.8883319922702;
+    projection.at<double >(1, 3) = 0.0;
+    projection.at<double >(2, 0) = 0.0;
+    projection.at<double >(2, 1) = 0.0;
+    projection.at<double >(2, 2) = 1.0;
+    projection.at<double >(2, 3) = 0.0;
+
+    rotation.at<double >(0, 0) = 0.9999839890693748;
+    rotation.at<double >(0, 1) = -0.00220878479974752;
+    rotation.at<double >(0, 2) = 0.005209882398764278;
+    rotation.at<double >(1, 0) = 0.002169762562952003;
+    rotation.at<double >(1, 1) = 0.9999696416803922;
+    rotation.at<double >(1, 2) = 0.007483839122310252;
+    rotation.at<double >(2, 0) = -0.005226254425586405;
+    rotation.at<double >(2, 1) = -0.007472415091295038;
+    rotation.at<double >(2, 2) = 0.9999584237743999;
+
+    translation.at<double >(0, 0) = -0.04598755491059946;
+    translation.at<double >(1, 0) = 9.878938204711128e-05;
+    translation.at<double >(2, 0) = 0.005470134429191416;
+
+    xyImagePlane.at<int>(0,0) = eye_x;
+    xyImagePlane.at<int>(1,0) = eye_y;
+
+    cv::Mat RinvMinv, RinvT;
+
+    RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
+    RinvT = rotation.inv() * translation;
+    s = 300 + RinvT.at<double>(2,0);   //picking 300 as an arbitrary point
+    s /= RinvMinv.at<double>(2,0);
+
+    worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
+
+    cout <<"world coordinates = " << worldcoordinates << endl;
+  }
 
   void cloudViewer()
   {
@@ -608,59 +661,6 @@ void detectAndDisplay( Mat detframe )
     {
       *it = (c - cx) * fx;
     }
-  }
-
-  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
-  cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat KM              = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat xyImagePlane    = cv::Mat::ones(3,1, CV_64F); //x=y=1
-  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
-  double s;
-
-  void reconstruct(int& eye_x, int& eye_y)
-  {
-    //Couldn't figure a better way to retrieve the projection from kinect2_bridge :(
-    projection.at<double >(0, 0) = 526.33795064532;
-    projection.at<double >(0, 1) = 0.0;
-    projection.at<double >(0, 2) = 478.4995813884854;
-    projection.at<double >(0, 3) = 0.0;
-    projection.at<double >(1, 0) = 0.0;
-    projection.at<double >(1, 1) = 526.6946594095425;
-    projection.at<double >(1, 2) = 263.8883319922702;
-    projection.at<double >(1, 3) = 0.0;
-    projection.at<double >(2, 0) = 0.0;
-    projection.at<double >(2, 1) = 0.0;
-    projection.at<double >(2, 2) = 1.0;
-    projection.at<double >(2, 3) = 0.0;
-
-    rotation.at<double >(0, 0) = 0.9999839890693748;
-    rotation.at<double >(0, 1) = -0.00220878479974752;
-    rotation.at<double >(0, 2) = 0.005209882398764278;
-    rotation.at<double >(1, 0) = 0.002169762562952003;
-    rotation.at<double >(1, 1) = 0.9999696416803922;
-    rotation.at<double >(1, 2) = 0.007483839122310252;
-    rotation.at<double >(2, 0) = -0.005226254425586405;
-    rotation.at<double >(2, 1) = -0.007472415091295038;
-    rotation.at<double >(2, 2) = 0.9999584237743999;
-
-    translation.at<double >(0, 0) = -0.04598755491059946;
-    translation.at<double >(1, 0) = 9.878938204711128e-05;
-    translation.at<double >(2, 0) = 0.005470134429191416;
-
-    xyImagePlane.at<int>(0,0) = eye_x;
-    xyImagePlane.at<int>(1,0) = eye_y;
-
-    cv::Mat RinvMinv, RinvT;
-
-    RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
-    RinvT = rotation.inv() * translation;
-    s = 300 + RinvT.at<double>(2,0);   //picking 300 as an arbitrary point
-    s /= RinvMinv.at<double>(2,0);
-
-    worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
-
-    cout <<"world coordinates = " << worldcoordinates << endl;
   }
 };
 
