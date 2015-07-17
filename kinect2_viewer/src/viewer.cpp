@@ -381,7 +381,7 @@ void detectAndDisplay( Mat detframe )
       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
-        Point* peye_center, eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
+        Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
         circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
@@ -396,14 +396,10 @@ void detectAndDisplay( Mat detframe )
         sprintf(texty, "eye center, y (mm): %d", eye_y); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
-        cout << "*peye_x: " << *peye_x <<endl;
-        //cout << "*peye_center: " << *peye_center << endl; 
-              
+        cout << "*peye_x: " << *peye_x <<endl;              
         reconstruct(eye_x, eye_y);
       } 
-      //cout << "*peye_x: " << *peye_x <<endl;
-      /*if ( eye_x != 0) {  reconstruct( *peye_center);   } 
-      else { printf(" --(!) No captured eyes!");} */
+      //cout << "outside *peye_x: " << *peye_x <<endl;
       delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
@@ -615,19 +611,17 @@ void detectAndDisplay( Mat detframe )
     }
   }
 
-  cv::Mat rotation = cv::Mat::eye(3, 3, CV_64F);  
-  cv::Mat translation = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection = cv::Mat::zeros(3, 4, CV_64F);
-
-  cv::Mat KM = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat xyImagePlane = cv::Mat::ones(3,1, CV_64F); //x=y=1
-
-  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);
+  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
+  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat KM              = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat xyImagePlane    = cv::Mat::ones(3,1, CV_64F); //x=y=1
+  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
+  double s;
 
   void reconstruct(int& eye_x, int& eye_y)
   {
-
-    //Couldn't figure a way to retrieve the projection from kinect2_bridge
+    //Couldn't figure a better way to retrieve the projection from kinect2_bridge :(
     projection.at<double >(0, 0) = 526.33795064532;
     projection.at<double >(0, 1) = 0.0;
     projection.at<double >(0, 2) = 478.4995813884854;
@@ -655,15 +649,10 @@ void detectAndDisplay( Mat detframe )
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    cout << "projection: " << projection << endl;
-    cout << "rotation: " << rotation << endl;
-    cout << "translation: " << translation << endl;
-
     xyImagePlane.at<int>(0,0) = eye_x;
     xyImagePlane.at<int>(1,0) = eye_y;
 
     cv::Mat RinvMinv, RinvT;
-    double s;
 
     RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
     RinvT = rotation.inv() * translation;
@@ -672,7 +661,7 @@ void detectAndDisplay( Mat detframe )
 
     worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
 
-    cout << "world coordinates = " << worldcoordinates << endl;
+    cout <<"world coordinates = " << worldcoordinates << endl;
   }
 };
 

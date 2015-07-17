@@ -691,7 +691,6 @@ private:
     {
       cameraInfo.K[i] = *itC;
     }
-    //std::cout << "camera matrix: " << cameraMatrix << std::endl;
 
     const double *itR = rotation.ptr<double>(0, 0);
     for(size_t i = 0; i < 9; ++i, ++itR)
@@ -703,8 +702,7 @@ private:
     for(size_t i = 0; i < 12; ++i, ++itP)
     {
       cameraInfo.P[i] = *itP;
-    }
-    //std::cout << "projection matrix: " << projection << std::endl; 
+    } 
 
     cameraInfo.distortion_model = "plumb_bob";
     cameraInfo.D.resize(distortion.cols);
