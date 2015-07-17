@@ -344,7 +344,6 @@ private:
   Point* peye_center = NULL;
   //peye_center = new Point;
 
-  //face detection
   void detectAndDisplay( Mat detframe )
   {
     std::vector<Rect> faces;
@@ -387,7 +386,10 @@ private:
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
         
         int eye_x = eye_center.x;        
-        int eye_y = eye_center.y;        
+        int eye_y = eye_center.y; 
+
+      /*  cout << "(eyex, eyey): " << " (" << eye_x << 
+            " , "  << eye_y << ")" << endl;  */     
 
         peye_x = new int (eye_x);          //allocate an int and initialize it
 
@@ -396,14 +398,13 @@ private:
         sprintf(texty, "eye center, y (mm): %d", eye_y); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
-        //cout << "*peye_x: " << *peye_x <<endl;              
-        reconstruct(eye_x, eye_y);
+        reconstruct(eye_x, eye_y);        
       } 
       delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
   }
-  
+
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
@@ -412,7 +413,7 @@ private:
   cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
   double s;
 
-  void reconstruct(int& eye_x, int& eye_y)
+  void reconstruct(int eye_x, int eye_y)
   {
     //Couldn't figure a better way to retrieve the projection from kinect2_bridge :(
     projection.at<double >(0, 0) = 526.33795064532;
@@ -445,13 +446,17 @@ private:
     xyImagePlane.at<int>(0,0) = eye_x;
     xyImagePlane.at<int>(1,0) = eye_y;
 
+  //cout << "(x, y, z): " << " (" << xyImagePlane << ")" << endl;
+
     cv::Mat RinvMinv, RinvT;
 
     RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
+    //cout << "RinvMinv: " << " (" << RinvMinv << ")" << endl;
     RinvT = rotation.inv() * translation;
+    //cout << "RinvT: " << " (" << RinvT << ")" << endl;
     s = 300 + RinvT.at<double>(2,0);   //picking 300 as an arbitrary point
+    //cout << "s: " << " (" << s << ")" << endl;
     s /= RinvMinv.at<double>(2,0);
-
     worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
 
     cout <<"world coordinates = " << worldcoordinates << endl;
