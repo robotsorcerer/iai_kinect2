@@ -71,11 +71,11 @@ CascadeClassifier Leye_cascade;
 RNG rng(12345);
 
 //font properties
-const cv::Point pos(5, 15);
-const cv::Scalar colorText = CV_RGB(255, 255, 255);
-const double sizeText = 0.5;
-const int lineText = 1;
-const int font = cv::FONT_HERSHEY_SIMPLEX;
+static const cv::Point pos(5, 15);
+static const cv::Scalar colorText = CV_RGB(255, 255, 255);
+static const double sizeText = 0.5;
+static const int lineText = 1;
+static const int font = cv::FONT_HERSHEY_SIMPLEX;
 
 std::ostringstream oss;
 
@@ -396,10 +396,9 @@ void detectAndDisplay( Mat detframe )
         sprintf(texty, "eye center, y (mm): %d", eye_y); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
-        cout << "*peye_x: " << *peye_x <<endl;              
+        //cout << "*peye_x: " << *peye_x <<endl;              
         reconstruct(eye_x, eye_y);
       } 
-      //cout << "outside *peye_x: " << *peye_x <<endl;
       delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
