@@ -374,10 +374,8 @@ private:
 
     //-- In each face, detect eyes
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-      
-      int* peye_x = 0; //int* peye_y = 0;  
-
-      #pragma omp parallel for 
+ 
+       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
@@ -391,8 +389,6 @@ private:
       /*  cout << "(eyex, eyey): " << " (" << eye_x << 
             " , "  << eye_y << ")" << endl;  */     
 
-        peye_x = new int (eye_x);          //allocate an int and initialize it
-
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
         sprintf(texty, "eye center, y (mm): %d", eye_y); 
@@ -400,34 +396,41 @@ private:
         putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
         reconstruct(eye_x, eye_y);        
       } 
-      delete peye_x;
     }
    cv::imshow( "Face and Features Viewer", detframe );
   }
 
+  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
+  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);
   cv::Mat KM              = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat xyImagePlane    = cv::Mat::ones(3,1, CV_64F); //x=y=1
+  cv::Mat pixelpts    = cv::Mat::ones(3,1, CV_64F); //x=y=1
   cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
-  double s;
+  double s; 
+  int xprime, yprime;
 
   void reconstruct(int eye_x, int eye_y)
   {
-    //Couldn't figure a better way to retrieve the projection from kinect2_bridge :(
-    projection.at<double >(0, 0) = 526.33795064532;
-    projection.at<double >(0, 1) = 0.0;
-    projection.at<double >(0, 2) = 478.4995813884854;
-    projection.at<double >(0, 3) = 0.0;
-    projection.at<double >(1, 0) = 0.0;
-    projection.at<double >(1, 1) = 526.6946594095425;
-    projection.at<double >(1, 2) = 263.8883319922702;
-    projection.at<double >(1, 3) = 0.0;
-    projection.at<double >(2, 0) = 0.0;
-    projection.at<double >(2, 1) = 0.0;
-    projection.at<double >(2, 2) = 1.0;
-    projection.at<double >(2, 3) = 0.0;
+    //intrinsic parameters
+    const float fx = cameraMatrixColor.at<double>(0, 0);
+    const float fy = cameraMatrixColor.at<double>(1, 1);
+    const float cx = cameraMatrixColor.at<double>(0, 2);
+    const float cy = cameraMatrixColor.at<double>(1, 2);  
+
+    //Couldn't figure a better way to retrieve the params from kinect2_bridge :(
+    distortion.at<double >(0, 0) = 0.02732778206941041;
+    distortion.at<double >(1, 0) = 0.06919310914717383;
+    distortion.at<double >(2, 0) = -0.00305523856741313;
+    distortion.at<double >(3, 0) = -0.003444061483684894;
+    distortion.at<double >(4, 0) = -0.07593134286172079;
+
+    const float k1 = distortion.at<double >(0, 0);
+    const float k2 = distortion.at<double >(1, 0);
+    const float p1 = distortion.at<double >(2, 0);
+    const float p2 = distortion.at<double >(3, 0);
+    const float k3 = distortion.at<double >(4, 0);
 
     rotation.at<double >(0, 0) = 0.9999839890693748;
     rotation.at<double >(0, 1) = -0.00220878479974752;
@@ -443,23 +446,39 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    xyImagePlane.at<int>(0,0) = eye_x;
-    xyImagePlane.at<int>(1,0) = eye_y;
+    homography.at<double >(0, 0) = rotation.at<double >(0, 0);
+    homography.at<double >(0, 1) = rotation.at<double >(0, 1);
+    homography.at<double >(0, 2) = translation.at<double >(0, 0);
+    homography.at<double >(1, 0) = rotation.at<double >(1, 0);
+    homography.at<double >(1, 1) = rotation.at<double >(1, 1);
+    homography.at<double >(1, 2) = translation.at<double >(1, 0);
+    homography.at<double >(2, 0) = rotation.at<double >(2, 0);
+    homography.at<double >(2, 1) = rotation.at<double >(2, 1);
+    homography.at<double >(2, 2) = translation.at<double >(2, 0);
 
-  //cout << "(x, y, z): " << " (" << xyImagePlane << ")" << endl;
+    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;   // radial distance from center
+    const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
+    const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
+    const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
 
-    cv::Mat RinvMinv, RinvT;
+    const float ux = floor (fx * xprime + cx);   
+    const float vy = floor (fy * yprime + cy);   //yprime is my y''
 
-    RinvMinv = rotation.inv() * cameraMatrixColor.inv() * xyImagePlane;
-    //cout << "RinvMinv: " << " (" << RinvMinv << ")" << endl;
-    RinvT = rotation.inv() * translation;
-    //cout << "RinvT: " << " (" << RinvT << ")" << endl;
-    s = 300 + RinvT.at<double>(2,0);   //picking 300 as an arbitrary point
-    //cout << "s: " << " (" << s << ")" << endl;
-    s /= RinvMinv.at<double>(2,0);
-    worldcoordinates = (rotation.inv() * cameraMatrixColor.inv() * s * xyImagePlane) - translation;
+    //convert u,v points to pixel ints
+    int u = (int) floor(ux + 0.5); 
+    int v = (int) floor(vy + 0.5);
 
-    cout <<"world coordinates = " << worldcoordinates << endl;
+    //These are the values after accounting for radial distortion and tangential distortion
+    pixelpts.at<int>(0,0) = u;
+    pixelpts.at<int>(1,0) = v;
+
+    //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
+    pixelpts = homography * pixelpts;
+
+    //normalize
+    //pixelpts /= 
+
+    cout <<"world coordinates = " << pixelpts << endl;
   }
 
   void cloudViewer()
