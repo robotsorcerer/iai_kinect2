@@ -384,10 +384,7 @@ private:
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
         
         int eye_x = eye_center.x;        
-        int eye_y = eye_center.y; 
-
-      /*  cout << "(eyex, eyey): " << " (" << eye_x << 
-            " , "  << eye_y << ")" << endl;  */     
+        int eye_y = eye_center.y;    
 
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
@@ -403,11 +400,12 @@ private:
   cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);
-  cv::Mat KM              = cv::Mat::zeros(3, 4, CV_64F);
-  cv::Mat pixelpts    = cv::Mat::ones(3,1, CV_64F); //x=y=1
-  cv::Mat worldcoordinates = cv::Mat::ones(3,1, CV_64F);  
+  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
+  cv::Mat homocat         = cv::Mat::zeros(3, 3, CV_64F);     //[r1 , r2, t]
+  cv::Mat homographyraw   = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]  
+  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]/t
+  cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
+  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
   double s; 
   int xprime, yprime;
 
@@ -446,17 +444,21 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    homography.at<double >(0, 0) = rotation.at<double >(0, 0);
-    homography.at<double >(0, 1) = rotation.at<double >(0, 1);
-    homography.at<double >(0, 2) = translation.at<double >(0, 0);
-    homography.at<double >(1, 0) = rotation.at<double >(1, 0);
-    homography.at<double >(1, 1) = rotation.at<double >(1, 1);
-    homography.at<double >(1, 2) = translation.at<double >(1, 0);
-    homography.at<double >(2, 0) = rotation.at<double >(2, 0);
-    homography.at<double >(2, 1) = rotation.at<double >(2, 1);
-    homography.at<double >(2, 2) = translation.at<double >(2, 0);
+    //8.1, p.196, Zisserman and Hartley
+    homocat.at<double >(0, 0) = rotation.at<double >(0, 0);
+    homocat.at<double >(0, 1) = rotation.at<double >(0, 1);
+    homocat.at<double >(0, 2) = translation.at<double >(0, 0);
+    homocat.at<double >(1, 0) = rotation.at<double >(1, 0);
+    homocat.at<double >(1, 1) = rotation.at<double >(1, 1);
+    homocat.at<double >(1, 2) = translation.at<double >(1, 0);
+    homocat.at<double >(2, 0) = rotation.at<double >(2, 0);
+    homocat.at<double >(2, 1) = rotation.at<double >(2, 1);
+    homocat.at<double >(2, 2) = translation.at<double >(2, 0);
 
-    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;   // radial distance from center
+    homographyraw             = cameraMatrixColor * homocat;
+    homography                = homographyraw / translation.at<double>(2, 0);
+
+    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
     const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
     const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
     const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
@@ -471,16 +473,14 @@ private:
     //These are the values after accounting for radial distortion and tangential distortion
     pixelpts.at<int>(0,0) = u;
     pixelpts.at<int>(1,0) = v;
+    cout << "pixelpts: " << pixelpts << endl;
 
     //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
-    pixelpts = homography * pixelpts;
+    reconstructed = homography * pixelpts;
 
-    //normalize
-    //pixelpts /= 
-
-    cout <<"world coordinates = " << pixelpts << endl;
+    cout <<"world coordinates = " << reconstructed << endl;
   }
-
+  
   void cloudViewer()
   {
     cv::Mat color, depth;
