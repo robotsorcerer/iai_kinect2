@@ -50,7 +50,6 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include <kinect2_bridge/kinect2_definitions.h>
-//#include <boost/bind.hpp>                   //to pass additional parameters to my callback
 
  using namespace std;
  using namespace cv;
@@ -60,24 +59,29 @@
 
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+String Reye_cascade_name = "haarcascade_mcs_righteye.xml";
+String Leye_cascade_name = "haarcascade_mcs_lefteye.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
 CascadeClassifier face_cascade;
 CascadeClassifier eyes_cascade;
 CascadeClassifier nose_cascade;
+CascadeClassifier Reye_cascade;
+CascadeClassifier Leye_cascade;
+
 RNG rng(12345);
 
 //font properties
-const cv::Point pos(5, 15);
-const cv::Scalar colorText = CV_RGB(255, 255, 255);
-const double sizeText = 0.5;
-const int lineText = 1;
-const int font = cv::FONT_HERSHEY_SIMPLEX;
+static const cv::Point pos(5, 15);
+static const cv::Scalar colorText = CV_RGB(255, 255, 255);
+static const double sizeText = 0.5;
+static const int lineText = 1;
+static const int font = cv::FONT_HERSHEY_SIMPLEX;
 
 std::ostringstream oss;
-std::string path;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe );
+void reconstruct( Point eye_center );
 
 class Receiver
 {
@@ -92,7 +96,7 @@ public:
 private:
   std::mutex lock;
 
-  const std::string topicColor, topicDepth, topicProjection;
+  const std::string topicColor, topicDepth;
   const bool useExact, useCompressed;
 
   bool updateImage, updateCloud;
@@ -103,18 +107,16 @@ private:
 
   cv::Mat color, depth;
   cv::Mat cameraMatrixColor, cameraMatrixDepth;
-  cv::Mat cameraMatrixProjection;
   cv::Mat lookupX, lookupY;
 
-  typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo> ExactSyncPolicy;
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo> ApproximateSyncPolicy;
+  typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ExactSyncPolicy;
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ApproximateSyncPolicy;
 
   ros::NodeHandle nh;             //starts the ROS cpp node, the 1st calls ros::start() and the last calls ros::shutdown()
   ros::AsyncSpinner spinner;
   image_transport::ImageTransport it;
   image_transport::SubscriberFilter *subImageColor, *subImageDepth;
   message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoColor, *subCameraInfoDepth;
-  message_filters::Subscriber<sensor_msgs::CameraInfo> *subCameraInfoProjection;
 
   message_filters::Synchronizer<ExactSyncPolicy> *syncExact;
   message_filters::Synchronizer<ApproximateSyncPolicy> *syncApproximate;
@@ -128,14 +130,13 @@ private:
   std::vector<int> params;
 
 public:
-  Receiver(const std::string &topicColor, const std::string &topicDepth, const std::string &topicProjection, const bool useExact, const bool useCompressed)
-    : topicColor(topicColor), topicDepth(topicDepth), topicProjection(topicProjection), useExact(useExact), useCompressed(useCompressed),
+  Receiver(const std::string &topicColor, const std::string &topicDepth, const bool useExact, const bool useCompressed)
+    : topicColor(topicColor), topicDepth(topicDepth), useExact(useExact), useCompressed(useCompressed),
       updateImage(false), updateCloud(false), save(false), running(false), frame(0), queueSize(5),
       nh("~"), spinner(0), it(nh), mode(CLOUD)
   {
     cameraMatrixColor = cv::Mat::zeros(3, 3, CV_64F);
     cameraMatrixDepth = cv::Mat::zeros(3, 3, CV_64F);
-    cameraMatrixProjection = cv::Mat::zeros(3, 3, CV_64F);
     params.push_back(cv::IMWRITE_JPEG_QUALITY);
     params.push_back(100);
     params.push_back(cv::IMWRITE_PNG_COMPRESSION);
@@ -163,24 +164,22 @@ private:
 
     std::string topicCameraInfoColor = topicColor.substr(0, topicColor.rfind('/')) + "/camera_info";
     std::string topicCameraInfoDepth = topicDepth.substr(0, topicDepth.rfind('/')) + "/camera_info";
-    std::string topicCameraInfoProjection = topicProjection.substr(0, topicProjection.rfind('/')) + "/camera_info";
 
     image_transport::TransportHints hints(useCompressed ? "compressed" : "raw");
     subImageColor = new image_transport::SubscriberFilter(it, topicColor, queueSize, hints);
     subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
-    subCameraInfoColor      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
-    subCameraInfoDepth      = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
-    subCameraInfoProjection = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoProjection, queueSize);
+    subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
+    subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
 
     if(useExact)
     {
-      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth/*, *subCameraInfoProjection*/);
-      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4, _5));
+      syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
+      syncExact->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
     }
     else
     {
-      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth/*, *subCameraInfoProjection*/);
-      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4, _5));
+      syncApproximate = new message_filters::Synchronizer<ApproximateSyncPolicy>(ApproximateSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
+      syncApproximate->registerCallback(boost::bind(&Receiver::callback, this, _1, _2, _3, _4));
     }
 
     spinner.start();
@@ -233,7 +232,6 @@ private:
     delete subImageDepth;
     delete subCameraInfoColor;
     delete subCameraInfoDepth;
-    //delete subCameraInfoProjection;
 
     running = false;
     if(mode == BOTH)
@@ -243,14 +241,14 @@ private:
   }
 
   void callback(const sensor_msgs::Image::ConstPtr imageColor, const sensor_msgs::Image::ConstPtr imageDepth,
-                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth,
-                const sensor_msgs::CameraInfo::ConstPtr cameraInfoProjection)
+                const sensor_msgs::CameraInfo::ConstPtr cameraInfoColor, const sensor_msgs::CameraInfo::ConstPtr cameraInfoDepth)
   {
     cv::Mat color, depth;
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
-    readCameraInfo(cameraInfoProjection, cameraMatrixProjection);
+    //cout<< "Color Matrix: " << cameraMatrixColor << endl;
+    //cout<< "Depth Matrix: " << cameraMatrixDepth << endl;
     readImage(imageColor, color);
     readImage(imageDepth, depth);
 
@@ -273,6 +271,7 @@ private:
   void imageViewer()
   {
     cv::Mat color, depth, depthDisp, combined, detframe;
+    Point eye_center;
     std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
     double fps = 0;
     size_t frameCount = 0;
@@ -336,63 +335,187 @@ private:
         }
         break;
       }
+      //delete projection;
     }
     cv::destroyAllWindows();
     cv::waitKey(100);
   }
 
-    //face detection
-void detectAndDisplay( Mat detframe )
-{
-  std::vector<Rect> faces;
-  Mat frame_gray;
+  Point* peye_center = NULL;
+  //peye_center = new Point;
 
-  cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
-  equalizeHist( frame_gray, frame_gray );
+  void detectAndDisplay( Mat detframe )
+  {
+    std::vector<Rect> faces;
+    Mat frame_gray;
 
-  //load cascades
-  face_cascade.load( face_cascade_name );
-  eyes_cascade.load( eyes_cascade_name );
-  nose_cascade.load( nose_cascade_name );  
+    cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
+    equalizeHist( frame_gray, frame_gray );
 
-   //-- Detect faces
-  face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+    //load cascades
+    face_cascade.load( face_cascade_name );
+    eyes_cascade.load( eyes_cascade_name );
+    nose_cascade.load( nose_cascade_name ); 
+    Reye_cascade.load( Reye_cascade_name ); 
+    Leye_cascade.load( Leye_cascade_name );
 
-   #pragma omp parallel for 
-   for( size_t i = 0; i < faces.size(); i++ )
+     //-- Detect faces
+    face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+
+     #pragma omp parallel for 
+    for( size_t i = 0; i < faces.size(); i++ )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
-      rectangle(detframe, vertex_one, vertex_two, Scalar(150, 255, 0), 2, 8, 0 );
+      rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
 
       Mat faceROI = frame_gray( faces[i] );
       std::vector<Rect> eyes, noses;
 
     //-- In each face, detect eyes
-      eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(35, 35) );
-
-      #pragma omp parallel for 
+      eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+ 
+       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        circle( detframe, eye_center, radius, Scalar( 150, 255, 0 ), 2, 8, 0 ); 
-        circle( detframe, eye_center, 4, Scalar(255,255,0), CV_FILLED, 8, 0);         
-        //line(detframe, eye_center, Point(50, 60), CV_RGB(255,0,0), 1, 8, 0);
-    //separate coordinates for easy display on cv window
-        int eye_x = eye_center.x;
-        int eye_y = eye_center.y;
-    //print to face detection screen  
+        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
+        circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+        
+        int eye_x = eye_center.x;        
+        int eye_y = eye_center.y;    
+
         char textx[255], texty[255];
         sprintf(textx, "eye center, x (mm): %d", eye_x);
-        sprintf(texty, "eye center, y (mm): %d", eye_y);         
+        sprintf(texty, "eye center, y (mm): %d", eye_y); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA);
-      }    
+        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
+        reconstruct(eye_x, eye_y);        
+      } 
     }
    cv::imshow( "Face and Features Viewer", detframe );
-}
+  }
 
+  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
+  cv::Mat scalefactor     = cv::Mat::zeros(1, 1, CV_64F);  
+  cv::Mat scalecomps      = cv::Mat::zeros(1, 3, CV_64F);
+  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
+  cv:: Mat pf             = cv::Mat::zeros(3, 1, CV_64F);  
+  cv::Mat camcenter       = cv::Mat::zeros(3, 1, CV_64F);
+  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
+  cv::Mat homocat         = cv::Mat::zeros(3, 3, CV_64F);     //[r1 , r2, t]
+  cv::Mat homographyraw   = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]  
+  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]/t
+  cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
+  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
+  double s; 
+  int xprime, yprime;
+
+  void reconstruct(int eye_x, int eye_y)
+  {
+    //intrinsic parameters
+    const float fx = cameraMatrixColor.at<double>(0, 0);
+    const float fy = cameraMatrixColor.at<double>(1, 1);
+    const float cx = cameraMatrixColor.at<double>(0, 2);
+    const float cy = cameraMatrixColor.at<double>(1, 2);  
+
+    //Couldn't figure a better way to retrieve the params from kinect2_bridge :(
+    distortion.at<double >(0, 0) = 0.02732778206941041;
+    distortion.at<double >(1, 0) = 0.06919310914717383;
+    distortion.at<double >(2, 0) = -0.00305523856741313;
+    distortion.at<double >(3, 0) = -0.003444061483684894;
+    distortion.at<double >(4, 0) = -0.07593134286172079;
+
+    const float k1 = distortion.at<double >(0, 0);
+    const float k2 = distortion.at<double >(1, 0);
+    const float p1 = distortion.at<double >(2, 0);
+    const float p2 = distortion.at<double >(3, 0);
+    const float k3 = distortion.at<double >(4, 0);
+
+    rotation.at<double >(0, 0) = 0.9999839890693748;
+    rotation.at<double >(0, 1) = -0.00220878479974752;
+    rotation.at<double >(0, 2) = 0.005209882398764278;
+    rotation.at<double >(1, 0) = 0.002169762562952003;
+    rotation.at<double >(1, 1) = 0.9999696416803922;
+    rotation.at<double >(1, 2) = 0.007483839122310252;
+    rotation.at<double >(2, 0) = -0.005226254425586405;
+    rotation.at<double >(2, 1) = -0.007472415091295038;
+    rotation.at<double >(2, 2) = 0.9999584237743999;
+
+    translation.at<double >(0, 0) = -0.04598755491059946;
+    translation.at<double >(1, 0) = 9.878938204711128e-05;
+    translation.at<double >(2, 0) = 0.005470134429191416;
+
+    //8.1, p.196, Zisserman and Hartley
+    homocat.at<double >(0, 0) = rotation.at<double >(0, 0);
+    homocat.at<double >(0, 1) = rotation.at<double >(0, 1);
+    homocat.at<double >(0, 2) = translation.at<double >(0, 0);
+    homocat.at<double >(1, 0) = rotation.at<double >(1, 0);
+    homocat.at<double >(1, 1) = rotation.at<double >(1, 1);
+    homocat.at<double >(1, 2) = translation.at<double >(1, 0);
+    homocat.at<double >(2, 0) = rotation.at<double >(2, 0);
+    homocat.at<double >(2, 1) = rotation.at<double >(2, 1);
+    homocat.at<double >(2, 2) = translation.at<double >(2, 0);
+
+    projection.at<double >(0, 0) = 526.33795064532;
+    projection.at<double >(0, 1) = 0;
+    projection.at<double >(0, 2) = 478.4995813884854;
+    projection.at<double >(0, 3) = 0;
+    projection.at<double >(1, 0) = 0;
+    projection.at<double >(1, 1) = 526.6946594095425;
+    projection.at<double >(1, 2) = 263.8883319922702;
+    projection.at<double >(1, 3) = 0;
+    projection.at<double >(2, 0) = 0;
+    projection.at<double >(2, 1) = 0;
+    projection.at<double >(2, 2) = 1;
+    projection.at<double >(2, 3) = 0;   
+
+    homographyraw             = cameraMatrixColor * homocat;
+    homography                = homographyraw / translation.at<double>(2, 0);
+
+    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
+    const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
+    const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
+    const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
+
+    const float ux = floor (fx * xprime + cx);   
+    const float vy = floor (fy * yprime + cy);   //yprime is my y''
+
+    //convert u,v points to pixel ints
+    int u = (int) floor(ux + 0.5); 
+    int v = (int) floor(vy + 0.5);
+
+    //These are the values after accounting for radial distortion and tangential distortion
+    pixelpts.at<int>(0,0) = u;
+    pixelpts.at<int>(1,0) = v;
+
+    //compute scale factor, k
+    scalecomps.at<double>(0, 0) = homocat.at<double >(2, 0);
+    scalecomps.at<double>(0, 1) = homocat.at<double >(2, 1);
+    scalecomps.at<double>(0, 2) = homocat.at<double >(2, 2);
+
+    scalefactor = scalecomps * pixelpts;                //s or k as you might call it
+
+    //last column of projection
+    pf.at<double >(0, 3) = projection.at<double >(0, 3);
+    pf.at<double >(1, 3) = projection.at<double >(1, 3);
+    pf.at<double >(2, 3) = projection.at<double >(2, 3);
+
+    Mat M = cameraMatrixColor * rotation ;            //M = KR
+    camcenter = -1.0 * M.inv() * pf;              //Find camera center
+
+    reconstructed = M.inv() * (pixelpts - pf );
+    cout <<"world coordinates = " << reconstructed << endl;
+
+/*
+    //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
+    reconstructed = homography * pixelpts;
+
+    cout <<"world coordinates = " << reconstructed << endl;*/
+  }
+  
   void cloudViewer()
   {
     cv::Mat color, depth;
@@ -476,17 +599,7 @@ void detectAndDisplay( Mat detframe )
       *itC = cameraInfo->K[i];
     }
   }
-/*
-  void readProjectionInfo(const sensor_msgs::CameraInfo::ConstPtr cameraInfo, cv::Mat &projection) const
-  {
-    double *itP = projection.ptr<double>(0, 0);
-    for(size_t i = 0; i < 12; ++i, ++itP)
-    {
-      *itP = cameraInfo->P[i] ;
-    }
-    cout << "Projection Matrix: " << projection << endl;
-  }
-*/
+
   void dispDepth(const cv::Mat &in, cv::Mat &out, const float maxValue)
   {
     cv::Mat tmp = cv::Mat(in.rows, in.cols, CV_8U);
@@ -503,8 +616,8 @@ void detectAndDisplay( Mat detframe )
         *itO = (uint8_t)std::min((*itI * maxInt / maxValue), 255.0f);
       }
     }
-    //cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
-    cv::applyColorMap(tmp, out, COLORMAP_OCEAN);      //looks better
+
+    cv::applyColorMap(tmp, out, cv::COLORMAP_JET);
   }
 
   void combine(const cv::Mat &inC, const cv::Mat &inD, cv::Mat &out)
@@ -515,7 +628,7 @@ void detectAndDisplay( Mat detframe )
     for(int r = 0; r < inC.rows; ++r)
     {
       const cv::Vec3b
-      *itC = inC.ptr<cv::Vec3b>(r),       //*itC is pointer to camera fx, cx matrix elements #L465
+      *itC = inC.ptr<cv::Vec3b>(r),
       *itD = inD.ptr<cv::Vec3b>(r);
       cv::Vec3b *itO = out.ptr<cv::Vec3b>(r);
 
@@ -560,6 +673,7 @@ void detectAndDisplay( Mat detframe )
         itP->r = itC->val[2];
         itP->a = 255;
       }
+      cout << "itP->z: " << itP->z << endl;
     }
   }
 
@@ -590,7 +704,7 @@ void detectAndDisplay( Mat detframe )
     const float fx = 1.0f / cameraMatrixColor.at<double>(0, 0);
     const float fy = 1.0f / cameraMatrixColor.at<double>(1, 1);
     const float cx = cameraMatrixColor.at<double>(0, 2);
-    const float cy = cameraMatrixColor.at<double>(1, 2);
+    const float cy = cameraMatrixColor.at<double>(1, 2);   
     float *it;
 
     lookupY = cv::Mat(1, height, CV_32F);
@@ -699,11 +813,12 @@ int main(int argc, char **argv)
   std::cout << "topic color: " << topicColor << std::endl;
   std::cout << "topic depth: " << topicDepth << std::endl;
 
-  Receiver receiver(topicColor, topicDepth, topicProjection, useExact, useCompressed);
+  Receiver receiver(topicColor, topicDepth, useExact, useCompressed);
 
   std::cout << "starting receiver..." << std::endl;
   receiver.run(mode);
-
   ros::shutdown();
   return 0;
 }
+
+
