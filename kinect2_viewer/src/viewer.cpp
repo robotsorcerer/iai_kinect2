@@ -59,6 +59,7 @@
 
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+//String eyes_cascade_name = "haarcascade_mcs_lefteye.xml";
 String Reye_cascade_name = "haarcascade_mcs_righteye.xml";
 String Leye_cascade_name = "haarcascade_mcs_lefteye.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
@@ -80,7 +81,7 @@ static const int font = cv::FONT_HERSHEY_SIMPLEX;
 std::ostringstream oss;
 
 /** Function Headers */
-void detectAndDisplay( Mat detframe );
+void detectAndDisplay( Mat detframe, Mat dispDepth );
 void reconstruct( Point eye_center );
 
 class Receiver
@@ -277,7 +278,7 @@ private:
     size_t frameCount = 0;
     std::ostringstream oss;
 
-    cv::namedWindow("Image Viewer");
+   // cv::namedWindow("Image Viewer");
     oss << "starting...";
 
     start = std::chrono::high_resolution_clock::now();
@@ -309,10 +310,10 @@ private:
 
         //detect faces, eyes and nose
         detframe = combined.clone();   //create deep clone of image for the face detection
-        detectAndDisplay( detframe );   //currently reduces native rate to 5.5Hz
+        detectAndDisplay( color, depthDisp );   //currently reduces native rate to 5.5Hz
 
-        cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-        cv::imshow("Image Viewer", combined);
+      //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+      //  cv::imshow("Image Viewer", combined);
       }
 
       int key = cv::waitKey(1);
@@ -344,7 +345,7 @@ private:
   Point* peye_center = NULL;
   //peye_center = new Point;
 
-  void detectAndDisplay( Mat detframe )
+  void detectAndDisplay( Mat detframe, Mat dispDepth )
   {
     std::vector<Rect> faces;
     Mat frame_gray;
@@ -361,9 +362,13 @@ private:
 
      //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+    
+    //measure performance
+    double fps = 0.0;
+    size_t frameCount = 0;
 
-     #pragma omp parallel for 
-    for( size_t i = 0; i < faces.size(); i++ )
+    #pragma omp parallel for 
+    for( size_t i = 0; i < faces.size(); ++i )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
@@ -373,9 +378,19 @@ private:
       std::vector<Rect> eyes, noses;
 
     //-- In each face, detect eyes
+      auto startface = std::chrono::high_resolution_clock::now();
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
- 
-       #pragma omp parallel for 
+      std::chrono::milliseconds duration(2);
+      //Evaluate code optimization
+        ++frameCount;
+        auto nowface = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsedface = nowface - startface;
+        char texta[255]; 
+        fps = frameCount * 1000 / elapsedface.count(); 
+        double tekri = 1000/ fps;   //ms
+        cout << "fps: " << fps << endl;
+        cout << "time: " << tekri << endl;
+      #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
@@ -384,46 +399,51 @@ private:
         circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
         
         int eye_x = eye_center.x;        
-        int eye_y = eye_center.y;    
+        int eye_y = eye_center.y; 
+        char* leftb = "("; char* rightb = ")"; char* unit = "in pixels"; 
+        char* timeunit = " ms";  
 
-        char textx[255], texty[255];
-        sprintf(textx, "eye center, x (mm): %d", eye_x);
-        sprintf(texty, "eye center, y (mm): %d", eye_y); 
+        char textx[255], texty[255], textz[255];        
+        sprintf(texty, "       PERFORMANCE METRICS"); 
+        sprintf(textx, "eye center: %s%d,%d%s %s", leftb,eye_x,eye_y,rightb, unit);
+        putText(detframe, texty, Point(5,15), font, sizeText, colorText, lineText, CV_AA); 
         putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, texty, Point(5,55), font, sizeText, colorText, lineText, CV_AA); 
-        reconstruct(eye_x, eye_y);        
-      } 
-    }
+        auto startrecon = std::chrono::high_resolution_clock::now();
+
+        int depth_x = dispDepth(eye_x);
+        int depth_y = dispDepth(eye_y);
+        cout << "depth_x, depth_y: " << depth_x << ", " << depth_y << endl;
+        
+        reconstruct(eye_x, eye_y); 
+        //race condition here
+       /* std::this_thread::sleep_for(duration);
+        auto endrecon = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsedrecon = endrecon - startrecon;
+        sprintf(textz, "Last reconstruction lasted: %f %s", elapsedrecon.count(),timeunit); 
+        putText(detframe, textz, Point(5,65), font, sizeText, colorText, lineText, CV_AA); */
+      }
+        //  char* freqpersec = "fps"; char* freq = "Hz";
+        //  sprintf(texta, "streaming at %f %s %s ", fps, freq, freqpersec);
+        //  cout << "fps: " << fps << " ( " << elapsedface / frameCount * 1000.0 << " ms)";
+       // putText(detframe, texta, Point(5, 70), font, sizeText, colorText, lineText, CV_AA);
+      }
    cv::imshow( "Face and Features Viewer", detframe );
   }
 
   cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
+  cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
-  cv::Mat homocat         = cv::Mat::zeros(3, 3, CV_64F);     //[r1 , r2, t]
-  cv::Mat homographyraw   = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]  
-  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]/t
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
+  cv::Mat pfour           = cv::Mat::ones(3,1, CV_64F); 
   cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
   double s; 
   int xprime, yprime;
 
   void reconstruct(int eye_x, int eye_y)
   {
-    //intrinsic parameters
-    const float fx = cameraMatrixColor.at<double>(0, 0);
-    const float fy = cameraMatrixColor.at<double>(1, 1);
-    const float cx = cameraMatrixColor.at<double>(0, 2);
-    const float cy = cameraMatrixColor.at<double>(1, 2);  
-
-    //Couldn't figure a better way to retrieve the params from kinect2_bridge :(
-    distortion.at<double >(0, 0) = 0.02732778206941041;
-    distortion.at<double >(1, 0) = 0.06919310914717383;
-    distortion.at<double >(2, 0) = -0.00305523856741313;
-    distortion.at<double >(3, 0) = -0.003444061483684894;
-    distortion.at<double >(4, 0) = -0.07593134286172079;
-
     const float k1 = distortion.at<double >(0, 0);
     const float k2 = distortion.at<double >(1, 0);
     const float p1 = distortion.at<double >(2, 0);
@@ -444,41 +464,19 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    //8.1, p.196, Zisserman and Hartley
-    homocat.at<double >(0, 0) = rotation.at<double >(0, 0);
-    homocat.at<double >(0, 1) = rotation.at<double >(0, 1);
-    homocat.at<double >(0, 2) = translation.at<double >(0, 0);
-    homocat.at<double >(1, 0) = rotation.at<double >(1, 0);
-    homocat.at<double >(1, 1) = rotation.at<double >(1, 1);
-    homocat.at<double >(1, 2) = translation.at<double >(1, 0);
-    homocat.at<double >(2, 0) = rotation.at<double >(2, 0);
-    homocat.at<double >(2, 1) = rotation.at<double >(2, 1);
-    homocat.at<double >(2, 2) = translation.at<double >(2, 0);
+    //6.14, p.162, Zisserman and Hartley Backprojection
+    pixelpts.at<int>(0,0) = eye_x;                  //2D points u, v
+    pixelpts.at<int>(1,0) = eye_y;
+    M = cameraMatrixColor * rotation;
+    Minv  = M.inv();
+    pfour = translation;
 
-    homographyraw             = cameraMatrixColor * homocat;
-    homography                = homographyraw / translation.at<double>(2, 0);
-
-    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
-    const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
-    const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
-    const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
-
-    const float ux = floor (fx * xprime + cx);   
-    const float vy = floor (fy * yprime + cy);   //yprime is my y''
-
-    //convert u,v points to pixel ints
-    int u = (int) floor(ux + 0.5); 
-    int v = (int) floor(vy + 0.5);
-
-    //These are the values after accounting for radial distortion and tangential distortion
-    pixelpts.at<int>(0,0) = u;
-    pixelpts.at<int>(1,0) = v;
     cout << "pixelpts: " << pixelpts << endl;
 
-    //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
-    reconstructed = homography * pixelpts;
+    //back project ; mu missing
+    reconstructed = Minv * (pixelpts - pfour);
 
-    cout <<"world coordinates = " << reconstructed << endl;
+    cout <<"reconstructed detframe: " << reconstructed << endl;
   }
   
   void cloudViewer()

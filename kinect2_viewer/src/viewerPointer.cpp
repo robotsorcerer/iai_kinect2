@@ -507,7 +507,7 @@ private:
     camcenter = -1.0 * M.inv() * pf;              //Find camera center
 
     reconstructed = M.inv() * (pixelpts - pf );
-    cout <<"world coordinates = " << reconstructed << endl;
+    cout <<"reconstruction = " << reconstructed << endl;
 
 /*
     //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
