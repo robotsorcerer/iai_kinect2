@@ -82,7 +82,8 @@ std::ostringstream oss;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe, Mat dispDepth );
-void reconstruct( Point eye_center );
+void reconstruct( int eye_x, int eye_y, Vec3b depthIntensity );
+Mat& ScanImageAndReduceRandomAccess(Mat& I, const uchar * table);
 
 class Receiver
 {
@@ -109,6 +110,9 @@ private:
   cv::Mat color, depth;
   cv::Mat cameraMatrixColor, cameraMatrixDepth;
   cv::Mat lookupX, lookupY;
+
+  int eye_x, eye_y;
+  uchar table;
 
   typedef message_filters::sync_policies::ExactTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ExactSyncPolicy;
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image, sensor_msgs::CameraInfo, sensor_msgs::CameraInfo> ApproximateSyncPolicy;
@@ -171,6 +175,10 @@ private:
     subImageDepth = new image_transport::SubscriberFilter(it, topicDepth, queueSize, hints);
     subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
     subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
+
+    uchar table[256];
+    for (int i = 0; i < 256; ++i)
+    table[i] = (uchar)(i);
 
     if(useExact)
     {
@@ -309,8 +317,8 @@ private:
         combine(color, depthDisp, combined);
 
         //detect faces, eyes and nose
-        detframe = combined.clone();   //create deep clone of image for the face detection
-        detectAndDisplay( color, depthDisp );   //currently reduces native rate to 5.5Hz
+        detframe = color.clone();   //create deep clone of image for the face detection
+        detectAndDisplay( detframe, depthDisp );   //currently reduces native rate to 5.5Hz
 
       //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
       //  cv::imshow("Image Viewer", combined);
@@ -336,19 +344,16 @@ private:
         }
         break;
       }
-      //delete projection;
     }
     cv::destroyAllWindows();
     cv::waitKey(100);
   }
 
-  Point* peye_center = NULL;
-  //peye_center = new Point;
-
+  Point2f depthPoints;
   void detectAndDisplay( Mat detframe, Mat dispDepth )
   {
     std::vector<Rect> faces;
-    Mat frame_gray;
+    Mat frame_gray, depth_gray;
 
     cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
     equalizeHist( frame_gray, frame_gray );
@@ -360,12 +365,8 @@ private:
     Reye_cascade.load( Reye_cascade_name ); 
     Leye_cascade.load( Leye_cascade_name );
 
-     //-- Detect faces
+    //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-    
-    //measure performance
-    double fps = 0.0;
-    size_t frameCount = 0;
 
     #pragma omp parallel for 
     for( size_t i = 0; i < faces.size(); ++i )
@@ -377,78 +378,63 @@ private:
       Mat faceROI = frame_gray( faces[i] );
       std::vector<Rect> eyes, noses;
 
-    //-- In each face, detect eyes
-      auto startface = std::chrono::high_resolution_clock::now();
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-      std::chrono::milliseconds duration(2);
-      //Evaluate code optimization
-        ++frameCount;
-        auto nowface = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> elapsedface = nowface - startface;
-        char texta[255]; 
-        fps = frameCount * 1000 / elapsedface.count(); 
-        double tekri = 1000/ fps;   //ms
-        cout << "fps: " << fps << endl;
-        cout << "time: " << tekri << endl;
+
       #pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
-        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
-        
+        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+    
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y; 
         char* leftb = "("; char* rightb = ")"; char* unit = "in pixels"; 
         char* timeunit = " ms";  
 
         char textx[255], texty[255], textz[255];        
-        sprintf(texty, "       PERFORMANCE METRICS"); 
+        sprintf(texty, "  PERFORMANCE METRICS"); 
         sprintf(textx, "eye center: %s%d,%d%s %s", leftb,eye_x,eye_y,rightb, unit);
-        putText(detframe, texty, Point(5,15), font, sizeText, colorText, lineText, CV_AA); 
-        putText(detframe, textx, Point(5,35), font, sizeText, colorText, lineText,CV_AA);
-        auto startrecon = std::chrono::high_resolution_clock::now();
+  
+        Vec3b intensity = faceROI.at<Vec3b>(eye_center.x, eye_center.y);      //intensity of pixel values at eye_center
+        Point3_<uchar>* p = faceROI.ptr<Point3_<uchar> >(eye_y, eye_x);
+        cout << "BGR intensity: " << intensity << endl; 
 
-        int depth_x = dispDepth(eye_x);
-        int depth_y = dispDepth(eye_y);
-        cout << "depth_x, depth_y: " << depth_x << ", " << depth_y << endl;
-        
-        reconstruct(eye_x, eye_y); 
-        //race condition here
-       /* std::this_thread::sleep_for(duration);
-        auto endrecon = std::chrono::high_resolution_clock::now();
-        std::chrono::duration<double, std::milli> elapsedrecon = endrecon - startrecon;
-        sprintf(textz, "Last reconstruction lasted: %f %s", elapsedrecon.count(),timeunit); 
-        putText(detframe, textz, Point(5,65), font, sizeText, colorText, lineText, CV_AA); */
+        putText(detframe, texty, Point(5,20), font, sizeText, colorText, lineText, CV_AA); 
+        putText(detframe, textx, Point(5,55), font, sizeText, colorText, lineText,CV_AA);
+
+        Vec3b depthIntensity = dispDepth.at<Vec3b>(eye_y, eye_x);
+        float depthVal = depthIntensity.val[0];
+        cout << "depth intensity of eye center: " << depthVal << endl;
+        reconstruct(eye_x, eye_y, depthIntensity);  
+    /*    Mat lookUpTable(1, 256, CV_8U);
+        uchar* p = lookUpTable.data;
+        for( int i = 0; i < 256; ++i) { p[i] = table[i];}     
+
+        for (int i = 0; i < times; ++i)
+        LUT(eye_center, lookUpTable, dispDepth);*/
       }
-        //  char* freqpersec = "fps"; char* freq = "Hz";
-        //  sprintf(texta, "streaming at %f %s %s ", fps, freq, freqpersec);
-        //  cout << "fps: " << fps << " ( " << elapsedface / frameCount * 1000.0 << " ms)";
-       // putText(detframe, texta, Point(5, 70), font, sizeText, colorText, lineText, CV_AA);
+
       }
-   cv::imshow( "Face and Features Viewer", detframe );
+    cv::imshow( "Face and Features Viewer", detframe );       
+    cv::imshow("dispDepth", dispDepth);
   }
 
-  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
   cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
   cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
-  cv::Mat pfour           = cv::Mat::ones(3,1, CV_64F); 
-  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
+  cv::Mat pfour           = cv::Mat::ones(3,1, CV_32F); 
+  cv::Mat M3              = cv::Mat::ones(1,3, CV_32F);
+  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_32F);  
   double s; 
   int xprime, yprime;
 
-  void reconstruct(int eye_x, int eye_y)
+  void reconstruct(int eye_x, int eye_y, Vec3b depthIntensity)
   {
-    const float k1 = distortion.at<double >(0, 0);
-    const float k2 = distortion.at<double >(1, 0);
-    const float p1 = distortion.at<double >(2, 0);
-    const float p2 = distortion.at<double >(3, 0);
-    const float k3 = distortion.at<double >(4, 0);
+    float depthVal = depthIntensity.val[0];
 
     rotation.at<double >(0, 0) = 0.9999839890693748;
     rotation.at<double >(0, 1) = -0.00220878479974752;
@@ -465,20 +451,30 @@ private:
     translation.at<double >(2, 0) = 0.005470134429191416;
 
     //6.14, p.162, Zisserman and Hartley Backprojection
-    pixelpts.at<int>(0,0) = eye_x;                  //2D points u, v
-    pixelpts.at<int>(1,0) = eye_y;
+    pixelpts.at<double>(0,0) = (double) eye_x;                  //2D points u, v
+    pixelpts.at<double>(1,0) = (double) eye_y;
     M = cameraMatrixColor * rotation;
+    //last row of M
+    M3 = M.row(2).clone();
+
     Minv  = M.inv();
     pfour = translation;
+    size_t mu = depthVal;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues
 
     cout << "pixelpts: " << pixelpts << endl;
 
     //back project ; mu missing
-    reconstructed = Minv * (pixelpts - pfour);
+  /*  for (size_t mu = 0; mu < dispDepth.rows; ++mu)
+    { */
+      cout << "mu: " << mu << endl;       
+     /* std::chrono::milliseconds duration(1000);
+      std::this_thread::sleep_for(duration);*/
+      Mat temp = mu * pixelpts ;    
+      reconstructed = Minv * (temp - pfour);
+      cout <<"3D Recon: " << reconstructed << "\n"<< endl; 
 
-    cout <<"reconstructed detframe: " << reconstructed << endl;
   }
-  
+ 
   void cloudViewer()
   {
     cv::Mat color, depth;
@@ -615,6 +611,7 @@ private:
       const uint16_t *itD = depth.ptr<uint16_t>(r);
       const cv::Vec3b *itC = color.ptr<cv::Vec3b>(r);
       const float y = lookupY.at<float>(0, r);
+      //cout << "y: " << y << endl;
       const float *itX = lookupX.ptr<float>();
 
       for(size_t c = 0; c < (size_t)depth.cols; ++c, ++itP, ++itD, ++itC, ++itX)
@@ -636,7 +633,6 @@ private:
         itP->r = itC->val[2];
         itP->a = 255;
       }
-      cout << "itP->z: " << itP->z << endl;
     }
   }
 
@@ -685,6 +681,42 @@ private:
     }
   }
 };
+
+/*
+  Mat& ScanImageAndReduceRandomAccess(Mat& dispdepth, const uchar* const table)
+  {
+    // accept only char type matrices
+    CV_Assert(I.depth() != sizeof(uchar));
+
+    const int channels = I.channels();
+    switch(channels)
+    {
+    case 1:
+        {
+            for( int i = 0; i < I.rows; ++i)
+                for( int j = 0; j < I.cols; ++j )
+                    I.at<uchar>(i,j) = table[I.at<uchar>(i,j)];
+            break;
+        }
+    case 3:
+        {
+         Mat_<Vec3b> _I = I;
+
+         for( int i = 0; i < I.rows; ++i)
+            for( int j = 0; j < I.cols; ++j )
+               {
+                   _I(i,j)[0] = table[_I(i,j)[0]];
+                   _I(i,j)[1] = table[_I(i,j)[1]];
+                   _I(i,j)[2] = table[_I(i,j)[2]];
+            }
+         I = _I;
+         break;
+        }
+    }
+
+    return I;
+  }
+  */
 
 void help(const std::string &path)
 {
