@@ -59,7 +59,6 @@
 
 String face_cascade_name = "haarcascade_frontalface_alt.xml";
 String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
-//String eyes_cascade_name = "haarcascade_mcs_lefteye.xml";
 String Reye_cascade_name = "haarcascade_mcs_righteye.xml";
 String Leye_cascade_name = "haarcascade_mcs_lefteye.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
@@ -81,9 +80,8 @@ static const int font = cv::FONT_HERSHEY_SIMPLEX;
 std::ostringstream oss;
 
 /** Function Headers */
-void detectAndDisplay( Mat detframe, Mat dispDepth );
-void reconstruct( int eye_x, int eye_y, Vec3b depthIntensity );
-Mat& ScanImageAndReduceRandomAccess(Mat& I, const uchar * table);
+void detectAndDisplay( Mat detframe, Mat depthDisp );
+void reconstruct( int right_x, int right_y, Mat depthDisp );
 
 class Receiver
 {
@@ -176,10 +174,6 @@ private:
     subCameraInfoColor = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoColor, queueSize);
     subCameraInfoDepth = new message_filters::Subscriber<sensor_msgs::CameraInfo>(nh, topicCameraInfoDepth, queueSize);
 
-    uchar table[256];
-    for (int i = 0; i < 256; ++i)
-    table[i] = (uchar)(i);
-
     if(useExact)
     {
       syncExact = new message_filters::Synchronizer<ExactSyncPolicy>(ExactSyncPolicy(queueSize), *subImageColor, *subImageDepth, *subCameraInfoColor, *subCameraInfoDepth);
@@ -256,7 +250,7 @@ private:
 
     readCameraInfo(cameraInfoColor, cameraMatrixColor);
     readCameraInfo(cameraInfoDepth, cameraMatrixDepth);
-    //cout<< "Color Matrix: " << cameraMatrixColor << endl;
+    //cout<< "Color Matrix: " << cameraMatrixColor << endl;i
     //cout<< "Depth Matrix: " << cameraMatrixDepth << endl;
     readImage(imageColor, color);
     readImage(imageDepth, depth);
@@ -313,7 +307,7 @@ private:
           frameCount = 0;
         }
 
-        dispDepth(depth, depthDisp, 12000.0f);
+        dispDepth(depth, depthDisp, 4500.0f);
         combine(color, depthDisp, combined);
 
         //detect faces, eyes and nose
@@ -321,7 +315,7 @@ private:
         detectAndDisplay( detframe, depthDisp );   //currently reduces native rate to 5.5Hz
 
       //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
-      //  cv::imshow("Image Viewer", combined);
+       // cv::imshow("depth", depth);
       }
 
       int key = cv::waitKey(1);
@@ -349,8 +343,7 @@ private:
     cv::waitKey(100);
   }
 
-  Point2f depthPoints;
-  void detectAndDisplay( Mat detframe, Mat dispDepth )
+  void detectAndDisplay( Mat detframe, Mat depthDisp )
   {
     std::vector<Rect> faces;
     Mat frame_gray, depth_gray;
@@ -388,36 +381,23 @@ private:
         circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
     
         int eye_x = eye_center.x;        
-        int eye_y = eye_center.y; 
-        char* leftb = "("; char* rightb = ")"; char* unit = "in pixels"; 
-        char* timeunit = " ms";  
+        int eye_y = eye_center.y; =[]
+        char* leftb = "("; char* rightb = ")"; char* unit = "pixels";  
 
         char textx[255], texty[255], textz[255];        
         sprintf(texty, "  PERFORMANCE METRICS"); 
-        sprintf(textx, "eye center: %s%d,%d%s %s", leftb,eye_x,eye_y,rightb, unit);
-  
-        Vec3b intensity = faceROI.at<Vec3b>(eye_center.x, eye_center.y);      //intensity of pixel values at eye_center
-        Point3_<uchar>* p = faceROI.ptr<Point3_<uchar> >(eye_y, eye_x);
-        cout << "BGR intensity: " << intensity << endl; 
+        sprintf(textx, "eye center: %s%d,%d%s %s", leftb,eye_x,eye_y,rightb, unit); 
 
         putText(detframe, texty, Point(5,20), font, sizeText, colorText, lineText, CV_AA); 
         putText(detframe, textx, Point(5,55), font, sizeText, colorText, lineText,CV_AA);
+        putText(detframe, textz, Point(5,75), font, sizeText, colorText, lineText,CV_AA);
 
-        Vec3b depthIntensity = dispDepth.at<Vec3b>(eye_y, eye_x);
-        float depthVal = depthIntensity.val[0];
-        cout << "depth intensity of eye center: " << depthVal << endl;
-        reconstruct(eye_x, eye_y, depthIntensity);  
-    /*    Mat lookUpTable(1, 256, CV_8U);
-        uchar* p = lookUpTable.data;
-        for( int i = 0; i < 256; ++i) { p[i] = table[i];}     
-
-        for (int i = 0; i < times; ++i)
-        LUT(eye_center, lookUpTable, dispDepth);*/
+        reconstruct(eye_x, eye_y, depthDisp);
       }
 
-      }
-    cv::imshow( "Face and Features Viewer", detframe );       
-    cv::imshow("dispDepth", dispDepth);
+      }    
+    cv::imshow( "Face and Features Viewer", detframe ); 
+    cv::imshow("dispDepth", depthDisp);     
   }
 
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
@@ -426,15 +406,30 @@ private:
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
-  cv::Mat pfour           = cv::Mat::ones(3,1, CV_32F); 
-  cv::Mat M3              = cv::Mat::ones(1,3, CV_32F);
-  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_32F);  
-  double s; 
-  int xprime, yprime;
+  cv::Mat pfour           = cv::Mat::zeros(3,1, CV_64F); 
+  cv::Mat M3              = cv::Mat::ones(1,3, CV_64F);
+  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
+  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
 
-  void reconstruct(int eye_x, int eye_y, Vec3b depthIntensity)
+  void reconstruct(int eye_x, int eye_y, Mat depthDisp)
   {
-    float depthVal = depthIntensity.val[0];
+        //intrinsic parameters
+    const float fx = cameraMatrixColor.at<double>(0, 0);
+    const float fy = cameraMatrixColor.at<double>(1, 1);
+    const float cx = cameraMatrixColor.at<double>(0, 2);
+    const float cy = cameraMatrixColor.at<double>(1, 2);  
+
+    distortion.at<double >(0, 0) = 0.02732778206941041;
+    distortion.at<double >(1, 0) = 0.06919310914717383;
+    distortion.at<double >(2, 0) = -0.00305523856741313;
+    distortion.at<double >(3, 0) = -0.003444061483684894;
+    distortion.at<double >(4, 0) = -0.07593134286172079;
+
+    const float k1 = distortion.at<double >(0, 0);
+    const float k2 = distortion.at<double >(1, 0);
+    const float p1 = distortion.at<double >(2, 0);
+    const float p2 = distortion.at<double >(3, 0);
+    const float k3 = distortion.at<double >(4, 0);
 
     rotation.at<double >(0, 0) = 0.9999839890693748;
     rotation.at<double >(0, 1) = -0.00220878479974752;
@@ -450,29 +445,46 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
+    pfour.at<double >(0, 0) = -0.04598755491059946;
+    pfour.at<double >(1, 0) = 9.878938204711128e-05;
+    pfour.at<double >(2, 0) = 0.005470134429191416;
+
+    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
+    const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
+    const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
+    const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
+
+    const float ux = floor (fx * xprime + cx);   
+    const float vy = floor (fy * yprime + cy);   //yprime is my y''
+
+    //convert u,v points to pixel ints
+    int u = (int) floor(ux + 0.5); 
+    int v = (int) floor(vy + 0.5);
+
+    //These are the values after accounting for radial distortion and tangential distortion
+   /* pixelpts.at<int>(0,0) = u;
+    pixelpts.at<int>(1,0) = v; */
+
     //6.14, p.162, Zisserman and Hartley Backprojection
-    pixelpts.at<double>(0,0) = (double) eye_x;                  //2D points u, v
-    pixelpts.at<double>(1,0) = (double) eye_y;
+    pixelpts.at<double>(0,0) = ux   /** depthright*/;                  //2D points u, v
+    pixelpts.at<double>(1,0) = vy   /** depthright*/;
     M = cameraMatrixColor * rotation;
     //last row of M
-    M3 = M.row(2).clone();
+    M3 = M.row(2).clone();          //pg 158.
+    float M3mod = sqrt ( pow(M3.at<float>(0,0), 2) + pow(M3.at<float>(0,1), 2) + pow(M3.at<float>(0,2), 2) );
 
     Minv  = M.inv();
-    pfour = translation;
-    size_t mu = depthVal;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues
 
-    cout << "pixelpts: " << pixelpts << endl;
+    size_t mu = 1 /*depthright * M3mod*/;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues     
 
-    //back project ; mu missing
-  /*  for (size_t mu = 0; mu < dispDepth.rows; ++mu)
-    { */
-      cout << "mu: " << mu << endl;       
-     /* std::chrono::milliseconds duration(1000);
-      std::this_thread::sleep_for(duration);*/
-      Mat temp = mu * pixelpts ;    
-      reconstructed = Minv * (temp - pfour);
-      cout <<"3D Recon: " << reconstructed << "\n"<< endl; 
+    Mat temp = mu * pixelpts ;    
+    reconstructed = Minv * (temp - pfour);
 
+    float depthright  = (depthDisp.at<float>(eye_y, eye_x) ); 
+
+    cout << "u,v pixelpts: " << pixelpts << endl;
+    cout << "X, Y, Z: " << "(" << u*depthright  <<", " << v*depthright <<", " << depthright << ")" << " |mu: " << mu << endl;
+    cout <<"Reconstruction: " << reconstructed << "\n"<< endl; 
   }
  
   void cloudViewer()
@@ -682,42 +694,6 @@ private:
   }
 };
 
-/*
-  Mat& ScanImageAndReduceRandomAccess(Mat& dispdepth, const uchar* const table)
-  {
-    // accept only char type matrices
-    CV_Assert(I.depth() != sizeof(uchar));
-
-    const int channels = I.channels();
-    switch(channels)
-    {
-    case 1:
-        {
-            for( int i = 0; i < I.rows; ++i)
-                for( int j = 0; j < I.cols; ++j )
-                    I.at<uchar>(i,j) = table[I.at<uchar>(i,j)];
-            break;
-        }
-    case 3:
-        {
-         Mat_<Vec3b> _I = I;
-
-         for( int i = 0; i < I.rows; ++i)
-            for( int j = 0; j < I.cols; ++j )
-               {
-                   _I(i,j)[0] = table[_I(i,j)[0]];
-                   _I(i,j)[1] = table[_I(i,j)[1]];
-                   _I(i,j)[2] = table[_I(i,j)[2]];
-            }
-         I = _I;
-         break;
-        }
-    }
-
-    return I;
-  }
-  */
-
 void help(const std::string &path)
 {
   std::cout << path << " [options]" << std::endl
@@ -815,5 +791,3 @@ int main(int argc, char **argv)
   ros::shutdown();
   return 0;
 }
-
-
