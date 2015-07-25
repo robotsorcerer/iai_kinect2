@@ -361,7 +361,6 @@ private:
     //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-    //#pragma omp parallel for 
     for( size_t i = 0; i < faces.size(); ++i )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
@@ -373,7 +372,6 @@ private:
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      //#pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
