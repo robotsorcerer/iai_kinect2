@@ -57,8 +57,8 @@
 /** Global variables */
 //-- Note, either copy these two files from opencv/data/haarscascades to your current folder, or change these locations
 
-String face_cascade_name = "haarcascade_frontalface_alt.xml";
-String eyes_cascade_name = "haarcascade_eye_tree_eyeglasses.xml";
+String face_cascade_name = "haarcascade_frontalface_alt2.xml";
+String eyes_cascade_name = "haarcascade_eye.xml";
 String Reye_cascade_name = "haarcascade_mcs_righteye.xml";
 String Leye_cascade_name = "haarcascade_mcs_lefteye.xml";
 String nose_cascade_name = "haarscascade_mcs_nose.xml";
@@ -312,7 +312,7 @@ private:
 
         //detect faces, eyes and nose
         detframe = color.clone();   //create deep clone of image for the face detection
-        detectAndDisplay( detframe, depthDisp );   //currently reduces native rate to 5.5Hz
+        detectAndDisplay(detframe, depthDisp );   //currently reduces native rate to 5.5Hz
 
       //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
        // cv::imshow("depth", depth);
@@ -361,7 +361,7 @@ private:
     //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-    #pragma omp parallel for 
+    //#pragma omp parallel for 
     for( size_t i = 0; i < faces.size(); ++i )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
@@ -373,15 +373,15 @@ private:
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      #pragma omp parallel for 
+      //#pragma omp parallel for 
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.25 );
+        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.2 );
         circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
     
         int eye_x = eye_center.x;        
-        int eye_y = eye_center.y; =[]
+        int eye_y = eye_center.y;
         char* leftb = "("; char* rightb = ")"; char* unit = "pixels";  
 
         char textx[255], texty[255], textz[255];        
@@ -397,7 +397,7 @@ private:
 
       }    
     cv::imshow( "Face and Features Viewer", detframe ); 
-    cv::imshow("dispDepth", depthDisp);     
+    //cv::imshow("dispDepth", depthDisp);     
   }
 
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
@@ -413,7 +413,7 @@ private:
 
   void reconstruct(int eye_x, int eye_y, Mat depthDisp)
   {
-        //intrinsic parameters
+    //intrinsic parameters
     const float fx = cameraMatrixColor.at<double>(0, 0);
     const float fy = cameraMatrixColor.at<double>(1, 1);
     const float cx = cameraMatrixColor.at<double>(0, 2);
@@ -460,10 +460,6 @@ private:
     //convert u,v points to pixel ints
     int u = (int) floor(ux + 0.5); 
     int v = (int) floor(vy + 0.5);
-
-    //These are the values after accounting for radial distortion and tangential distortion
-   /* pixelpts.at<int>(0,0) = u;
-    pixelpts.at<int>(1,0) = v; */
 
     //6.14, p.162, Zisserman and Hartley Backprojection
     pixelpts.at<double>(0,0) = ux   /** depthright*/;                  //2D points u, v
