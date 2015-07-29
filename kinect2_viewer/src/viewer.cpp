@@ -72,7 +72,7 @@ RNG rng(12345);
 
 //font properties
 static const cv::Point pos(5, 15);
-static const cv::Scalar colorText = CV_RGB(255, 255, 255);
+static const cv::Scalar colorText = CV_RGB(0, 0, 255);
 static const double sizeText = 0.5;
 static const int lineText = 1;
 static const int font = cv::FONT_HERSHEY_SIMPLEX;
@@ -80,8 +80,8 @@ static const int font = cv::FONT_HERSHEY_SIMPLEX;
 std::ostringstream oss;
 
 /** Function Headers */
-void detectAndDisplay( Mat detframe, Mat depthDisp );
-void reconstruct( int right_x, int right_y, Mat depthDisp );
+void detectAndDisplay( Mat detframe, Mat depth );
+void reconstruct( int right_x, int right_y, Mat depth, Mat detframe );
 
 class Receiver
 {
@@ -312,7 +312,7 @@ private:
 
         //detect faces, eyes and nose
         detframe = color.clone();  
-        detectAndDisplay(detframe, depthDisp ); 
+        detectAndDisplay(detframe, depth ); 
 
       //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
        // cv::imshow("depth", depth);
@@ -343,7 +343,7 @@ private:
     cv::waitKey(100);
   }
 
-  void detectAndDisplay( Mat detframe, Mat depthDisp )
+  void detectAndDisplay( Mat detframe, Mat depth )
   {
     std::vector<Rect> faces;
     Mat frame_gray, depth_gray;
@@ -375,46 +375,42 @@ private:
       for( size_t j = 0; j < eyes.size(); j++ )
        {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        int radius = cvRound( (eyes[j].width + eyes[j].height)*0.2 );
-        circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); circle( detframe, eye_center, 3.5, Scalar(255,255,255), CV_FILLED, 8, 0); 
+        //int radius = cvRound( (eyes[j].width + eyes[j].height)*0.2 );
+        //circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
+        circle( detframe, eye_center, 4, Scalar(255,255,255), CV_FILLED, 8, 0); 
     
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y;
-        char* leftb = "("; char* rightb = ")"; char* unit = "pixels";  
 
-        char textx[255], texty[255], textz[255];        
-        sprintf(texty, "  PERFORMANCE METRICS"); 
-        sprintf(textx, "eye center: %s%d,%d%s %s", leftb,eye_x,eye_y,rightb, unit); 
-
-        putText(detframe, texty, Point(5,20), font, sizeText, colorText, lineText, CV_AA); 
-        putText(detframe, textx, Point(5,55), font, sizeText, colorText, lineText,CV_AA);
-
-        reconstruct(eye_x, eye_y, depthDisp);
+        reconstruct(eye_x, eye_y, depth, detframe);
       }
 
       }    
-    cv::imshow( "Face and Features Viewer", detframe ); 
     //cv::imshow("dispDepth", depthDisp);     
   }
 
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat rotinv          = cv::Mat::eye(3, 3, CV_64F);  
   cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
   cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection, proj= cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
+  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
   cv::Mat pfour           = cv::Mat::zeros(3,1, CV_64F); 
   cv::Mat M3              = cv::Mat::ones(1,3, CV_64F);
   cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
-
-  void reconstruct(int eye_x, int eye_y, Mat depthDisp)
+  
+  cv::FileStorage fs; const String filename = "depthPoints.yaml";
+  
+  void reconstruct(int eye_x, int eye_y, Mat depth, Mat detframe)
   {
+
   //intrinsic parameters
     const float fx = cameraMatrixColor.at<double>(0, 0);
     const float fy = cameraMatrixColor.at<double>(1, 1);
-    const float cx = cameraMatrixColor.at<double>(0, 2) + 0.5;
-    const float cy = cameraMatrixColor.at<double>(1, 2) + 0.5;  
+    const float cx = cameraMatrixColor.at<double>(0, 2)/* + 0.5*/;
+    const float cy = cameraMatrixColor.at<double>(1, 2)/* + 0.5*/;  
 
     distortion.at<double >(0, 0) = 0.02732778206941041;
     distortion.at<double >(1, 0) = 0.06919310914717383;
@@ -442,11 +438,13 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    pfour.at<double >(0, 0) = -0.04598755491059946;
+    pfour.at<double >(0, 0) = 0.04598755491059946;
     pfour.at<double >(1, 0) = 9.878938204711128e-05;
     pfour.at<double >(2, 0) = 0.005470134429191416;
 
-    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
+    hconcat(rotation, translation, projection);     //concatenate rotation and translation to give projection matrix
+
+    const float r       = pow( (eye_x), 2) + pow( (eye_y), 2) ;            // radial distance from center
     const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
     const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
     const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
@@ -459,24 +457,39 @@ private:
     int v = (int) floor(vy + 0.5);
 
     //6.14, p.162, Zisserman and Hartley Backprojection
-    pixelpts.at<double>(0,0) = ux   /** depthright*/;                  //2D points u, v
-    pixelpts.at<double>(1,0) = vy   /** depthright*/;
+    pixelpts.at<double>(0,0) = eye_x   ;                  //2D points u, v
+    pixelpts.at<double>(1,0) = eye_y   ;
     M = cameraMatrixColor * rotation;
-    //last row of M
-    M3 = M.row(2).clone();          //pg 158.
-    float M3mod = sqrt ( pow(M3.at<float>(0,0), 2) + pow(M3.at<float>(0,1), 2) + pow(M3.at<float>(0,2), 2) );
 
-    Minv  = M.inv();
+    Mat rotinv = rotation.inv();
+    reconstructed = rotinv * pixelpts - rotinv*translation;
+    uint16_t depthright  = depth.at<uint16_t>(eye_y, eye_x); 
 
-    float depthright  = depthDisp.at<unsigned short>(eye_y, eye_x); 
-    size_t mu = depthright * M3mod;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues         
-    Mat temp = mu * pixelpts ;    
-    reconstructed = Minv * (temp - pfour);
+    cout << "\nu,v pixelpts: " << pixelpts << endl;
+    cout << "X, Y, Z: " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")" << endl;
+    cout <<"Reconstruction: " << reconstructed << "\n" << endl; 
+    
+    fs.open(filename, cv::FileStorage::APPEND);
+    fs << "depthVal " << depthright;
+    fs.release();
 
-    cout << "u,v pixelpts: " << pixelpts << endl;
-    cout << "X, Y, Z: " << "(" << u*depthright  <<", " << v*depthright <<", " << depthright << ")" << " |mu: " << mu << endl;
-    cout <<"Reconstruction: " << reconstructed << "\n"<< endl; 
+    
+    //Put the values on the screen
+    std::ostringstream oss;
+    std::ostringstream osx;
+    std::ostringstream osz;
+    oss.str(" ");
+    osx.str(" ");
+    osz.str(" ");
+    oss << "Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<< "  | Eye depth: " << depthright << endl;
+    osx << "Reconstruction: " << reconstructed <<endl;
+    osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")" << endl;
+    putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
+    putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
+    putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
+    cv::imshow( "ROS Faces/Features Viewer", detframe ); 
   }
+
  
   void cloudViewer()
   {
