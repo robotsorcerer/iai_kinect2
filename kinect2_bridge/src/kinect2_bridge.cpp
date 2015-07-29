@@ -233,7 +233,7 @@ private:
     priv_nh.param("reg_method", reg_method, regDefault);
     priv_nh.param("reg_devive", reg_dev, -1);
     priv_nh.param("max_depth", maxDepth, 12.0);
-    priv_nh.param("min_depth", minDepth, 1.0);
+    priv_nh.param("min_depth", minDepth, 0.1);
     priv_nh.param("queue_size", queueSize, 2);
     priv_nh.param("bilateral_filter", bilateral_filter, true);
     priv_nh.param("edge_aware_filter", edge_aware_filter, true);

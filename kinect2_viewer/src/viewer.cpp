@@ -307,12 +307,12 @@ private:
           frameCount = 0;
         }
 
-        dispDepth(depth, depthDisp, 4500.0f);
+        dispDepth(depth, depthDisp, 12000.0f);
         combine(color, depthDisp, combined);
 
         //detect faces, eyes and nose
-        detframe = color.clone();   //create deep clone of image for the face detection
-        detectAndDisplay(detframe, depthDisp );   //currently reduces native rate to 5.5Hz
+        detframe = color.clone();  
+        detectAndDisplay(detframe, depthDisp ); 
 
       //  cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
        // cv::imshow("depth", depth);
@@ -388,7 +388,6 @@ private:
 
         putText(detframe, texty, Point(5,20), font, sizeText, colorText, lineText, CV_AA); 
         putText(detframe, textx, Point(5,55), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, textz, Point(5,75), font, sizeText, colorText, lineText,CV_AA);
 
         reconstruct(eye_x, eye_y, depthDisp);
       }
@@ -402,7 +401,7 @@ private:
   cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
   cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
+  cv::Mat projection, proj= cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
   cv::Mat pfour           = cv::Mat::zeros(3,1, CV_64F); 
   cv::Mat M3              = cv::Mat::ones(1,3, CV_64F);
@@ -411,11 +410,11 @@ private:
 
   void reconstruct(int eye_x, int eye_y, Mat depthDisp)
   {
-    //intrinsic parameters
+  //intrinsic parameters
     const float fx = cameraMatrixColor.at<double>(0, 0);
     const float fy = cameraMatrixColor.at<double>(1, 1);
-    const float cx = cameraMatrixColor.at<double>(0, 2);
-    const float cy = cameraMatrixColor.at<double>(1, 2);  
+    const float cx = cameraMatrixColor.at<double>(0, 2) + 0.5;
+    const float cy = cameraMatrixColor.at<double>(1, 2) + 0.5;  
 
     distortion.at<double >(0, 0) = 0.02732778206941041;
     distortion.at<double >(1, 0) = 0.06919310914717383;
@@ -469,12 +468,10 @@ private:
 
     Minv  = M.inv();
 
-    size_t mu = 1 /*depthright * M3mod*/;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues     
-
+    float depthright  = depthDisp.at<unsigned short>(eye_y, eye_x); 
+    size_t mu = depthright * M3mod;             //translation.at<double >(2, 0);           //checkformula pixelpts should be depthValues         
     Mat temp = mu * pixelpts ;    
     reconstructed = Minv * (temp - pfour);
-
-    float depthright  = (depthDisp.at<float>(eye_y, eye_x) ); 
 
     cout << "u,v pixelpts: " << pixelpts << endl;
     cout << "X, Y, Z: " << "(" << u*depthright  <<", " << v*depthright <<", " << depthright << ")" << " |mu: " << mu << endl;
@@ -515,7 +512,11 @@ private:
         updateCloud = false;
         lock.unlock();
 
-        createCloud(depth, color, cloud);
+        createCloud(depth, color, cloud);        
+        cv::Mat detframe, depthDisp;
+        dispDepth(depth, depthDisp, 12000.0f);
+        detframe = color.clone();  
+        detectAndDisplay(detframe, depthDisp );         
 
         visualizer->updatePointCloud(cloud, cloudName);
       }
