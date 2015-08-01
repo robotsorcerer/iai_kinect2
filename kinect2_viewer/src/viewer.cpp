@@ -51,6 +51,8 @@
 
 #include <kinect2_bridge/kinect2_definitions.h>
 
+ #include "kalman/ekfilter.hpp"
+
  using namespace std;
  using namespace cv;
 
@@ -357,7 +359,6 @@ private:
     nose_cascade.load( nose_cascade_name ); 
     Reye_cascade.load( Reye_cascade_name ); 
     Leye_cascade.load( Leye_cascade_name );
-
     //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
@@ -369,11 +370,12 @@ private:
 
       Mat faceROI = frame_gray( faces[i] );
       std::vector<Rect> eyes, noses;
+      
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
       for( size_t j = 0; j < eyes.size(); j++ )
-       {
+      {
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         //int radius = cvRound( (eyes[j].width + eyes[j].height)*0.2 );
         //circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
@@ -381,12 +383,12 @@ private:
     
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y;
-
+        
+        uint16_t depthright  = 48.0f + depth.at<uint16_t>(eye_y, eye_x); 
+        cout << "depthright: " << depthright << endl;
         reconstruct(eye_x, eye_y, depth, detframe);
       }
-
-      }    
-    //cv::imshow("dispDepth", depthDisp);     
+    }     
   }
 
   cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
@@ -406,7 +408,35 @@ private:
   void reconstruct(int eye_x, int eye_y, Mat depth, Mat detframe)
   {
 
-  //intrinsic parameters
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
+    double fps = 0;
+    size_t frameCount = 0;
+    std::ostringstream osa;
+
+   /* start = std::chrono::high_resolution_clock::now();
+    for(; running && ros::ok();)
+    {
+      if(updateImage)
+      {
+       lock.lock();
+        color = this->color;
+        depth = this->depth;
+        updateImage = false;
+        lock.unlock();
+
+        ++frameCount;
+        now = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
+        if(elapsed >= 1.0)
+        {
+          fps = frameCount / elapsed;
+          osa.str("");
+          start = now;
+          frameCount = 0;
+        }*/
+      // cout << "fps: " << fps << "Hz ( " << elapsed / frameCount * 1000.0 << " ms)" << endl;  
+
+    //intrinsic parameters
     const float fx = cameraMatrixColor.at<double>(0, 0);
     const float fy = cameraMatrixColor.at<double>(1, 1);
     const float cx = cameraMatrixColor.at<double>(0, 2)/* + 0.5*/;
@@ -463,31 +493,29 @@ private:
 
     Mat rotinv = rotation.inv();
     reconstructed = rotinv * pixelpts - rotinv*translation;
-    uint16_t depthright  = depth.at<uint16_t>(eye_y, eye_x); 
-
-    cout << "\nu,v pixelpts: " << pixelpts << endl;
-    cout << "X, Y, Z: " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")" << endl;
-    cout <<"Reconstruction: " << reconstructed << "\n" << endl; 
+    uint16_t depthright  = 48.0f + depth.at<uint16_t>(eye_y, eye_x); 
     
     fs.open(filename, cv::FileStorage::APPEND);
     fs << "depthVal " << depthright;
-    fs.release();
-
+    fs.release();  
     
-    //Put the values on the screen
-    std::ostringstream oss;
-    std::ostringstream osx;
-    std::ostringstream osz;
-    oss.str(" ");
-    osx.str(" ");
-    osz.str(" ");
-    oss << "Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<< "  | Eye depth: " << depthright << endl;
-    osx << "Reconstruction: " << reconstructed <<endl;
-    osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")" << endl;
-    putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
-    putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
-    putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
-    cv::imshow( "ROS Faces/Features Viewer", detframe ); 
+     //Put the values on the screen
+      std::ostringstream oss;
+      std::ostringstream osx;
+      std::ostringstream osz;
+      oss.str(" ");
+      osx.str(" ");
+      osz.str(" ");
+      oss << "Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<< "  | Eye depth: " << depthright;
+      osx << "Reconstruction: " << reconstructed;
+      osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")";
+      putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
+      putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
+      putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
+      putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
+      cv::imshow( "ROS Faces/Features Viewer", detframe ); 
+  /*    }
+    }*/
   }
 
  
