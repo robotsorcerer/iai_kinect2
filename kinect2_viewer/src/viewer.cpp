@@ -385,7 +385,7 @@ private:
         int eye_y = eye_center.y;
         
         uint16_t depthright  = 48.0f + depth.at<uint16_t>(eye_y, eye_x); 
-        cout << "depthright: " << depthright << endl;
+        cout << "ROS Actual: " << depthright << endl;
         reconstruct(eye_x, eye_y, depth, detframe);
       }
     }     
@@ -493,7 +493,7 @@ private:
 
     Mat rotinv = rotation.inv();
     reconstructed = rotinv * pixelpts - rotinv*translation;
-    uint16_t depthright  = 48.0f + depth.at<uint16_t>(eye_y, eye_x); 
+    uint16_t depthright  = (16.0f + depth.at<uint16_t>(eye_y, eye_x) ); 
     
     fs.open(filename, cv::FileStorage::APPEND);
     fs << "depthVal " << depthright;
@@ -506,13 +506,13 @@ private:
       oss.str(" ");
       osx.str(" ");
       osz.str(" ");
-      oss << "Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<< "  | Eye depth: " << depthright;
+      oss << /*"Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<<*/ " FacePoint: " << depthright << "mm";
       osx << "Reconstruction: " << reconstructed;
       osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")";
       putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
-      putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
-      putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
-      putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
+      //putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
+     // putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
+     // putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
       cv::imshow( "ROS Faces/Features Viewer", detframe ); 
   /*    }
     }*/
