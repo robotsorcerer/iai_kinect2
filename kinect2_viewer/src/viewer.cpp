@@ -345,10 +345,16 @@ private:
     cv::waitKey(100);
   }
 
+  cv::FileStorage fs; 
+
+  const String filename = "ROSFacePoints.yaml";
+
   void detectAndDisplay( Mat detframe, Mat depth )
   {
     std::vector<Rect> faces;
     Mat frame_gray, depth_gray;
+    double fps = 0.0;
+    size_t frameCount = 0;
 
     cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
     equalizeHist( frame_gray, frame_gray );
@@ -356,12 +362,9 @@ private:
     //load cascades
     face_cascade.load( face_cascade_name );
     eyes_cascade.load( eyes_cascade_name );
-    nose_cascade.load( nose_cascade_name ); 
-    Reye_cascade.load( Reye_cascade_name ); 
-    Leye_cascade.load( Leye_cascade_name );
+
     //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
-
     for( size_t i = 0; i < faces.size(); ++i )
     {
       Point vertex_one ( faces[i].x, faces[i].y);      
@@ -370,154 +373,103 @@ private:
 
       Mat faceROI = frame_gray( faces[i] );
       std::vector<Rect> eyes, noses;
-      
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      for( size_t j = 0; j < eyes.size(); j++ )
-      {
+      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+      start = chrono::high_resolution_clock::now(); 
+      for( size_t j = 0; j < eyes.size(); j++, ++frameCount )
+       {        
+        end = chrono::high_resolution_clock::now();   
+        double deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
+
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        //int radius = cvRound( (eyes[j].width + eyes[j].height)*0.2 );
-        //circle( detframe, eye_center, radius, Scalar( 255, 0, 0 ), 2, 8, 0 ); 
-        circle( detframe, eye_center, 4, Scalar(255,255,255), CV_FILLED, 8, 0); 
+        circle( detframe, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
     
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y;
-        
-        uint16_t depthright  = 48.0f + depth.at<uint16_t>(eye_y, eye_x); 
-        cout << "ROS Actual: " << depthright << endl;
-        reconstruct(eye_x, eye_y, depth, detframe);
-      }
-    }     
-  }
 
-  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
-  cv::Mat rotinv          = cv::Mat::eye(3, 3, CV_64F);  
-  cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
-  cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
-  cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
-  cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
-  cv::Mat pfour           = cv::Mat::zeros(3,1, CV_64F); 
-  cv::Mat M3              = cv::Mat::ones(1,3, CV_64F);
-  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
-  cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
-  
-  cv::FileStorage fs; const String filename = "depthPoints.yaml";
-  
-  void reconstruct(int eye_x, int eye_y, Mat depth, Mat detframe)
-  {
+        uint16_t depthright  = depth.at<uint16_t>(eye_y, eye_x); 
+        cout << "ROS Actual: " << depthright << "mm   | ROS Adjusted: " << depthright + 16.0f << "mm" << endl;
 
-    std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
-    double fps = 0;
-    size_t frameCount = 0;
-    std::ostringstream osa;
+        std::ostringstream oss;
+        std::ostringstream osf;
+        oss.str(" ");
+        oss <<"Face Point: " << depthright << " mm";
 
-   /* start = std::chrono::high_resolution_clock::now();
-    for(; running && ros::ok();)
-    {
-      if(updateImage)
-      {
-       lock.lock();
-        color = this->color;
-        depth = this->depth;
-        updateImage = false;
-        lock.unlock();
-
-        ++frameCount;
-        now = std::chrono::high_resolution_clock::now();
-        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
-        if(elapsed >= 1.0)
+        if(deltaT >= 1.0)
         {
-          fps = frameCount / elapsed;
-          osa.str("");
-          start = now;
+          fps = frameCount / deltaT;
+          osf.str("");
+          osf << "fps: " << fps << " ( " << deltaT / frameCount * 1000.0 << " ms)";
+          start = end;
           frameCount = 0;
-        }*/
-      // cout << "fps: " << fps << "Hz ( " << elapsed / frameCount * 1000.0 << " ms)" << endl;  
+        }
 
-    //intrinsic parameters
-    const float fx = cameraMatrixColor.at<double>(0, 0);
-    const float fy = cameraMatrixColor.at<double>(1, 1);
-    const float cx = cameraMatrixColor.at<double>(0, 2)/* + 0.5*/;
-    const float cy = cameraMatrixColor.at<double>(1, 2)/* + 0.5*/;  
+        putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
+        putText(detframe, osf.str(), Point(20,65), font, sizeText, colorText, lineText,CV_AA);
+        imshow( "ROS Features Viewer", detframe ); 
 
-    distortion.at<double >(0, 0) = 0.02732778206941041;
-    distortion.at<double >(1, 0) = 0.06919310914717383;
-    distortion.at<double >(2, 0) = -0.00305523856741313;
-    distortion.at<double >(3, 0) = -0.003444061483684894;
-    distortion.at<double >(4, 0) = -0.07593134286172079;
+        fs.open(filename, cv::FileStorage::APPEND);
+        fs << "depthVal " << depthright;
+        fs.release();
 
-    const float k1 = distortion.at<double >(0, 0);
-    const float k2 = distortion.at<double >(1, 0);
-    const float p1 = distortion.at<double >(2, 0);
-    const float p2 = distortion.at<double >(3, 0);
-    const float k3 = distortion.at<double >(4, 0);
-
-    rotation.at<double >(0, 0) = 0.9999839890693748;
-    rotation.at<double >(0, 1) = -0.00220878479974752;
-    rotation.at<double >(0, 2) = 0.005209882398764278;
-    rotation.at<double >(1, 0) = 0.002169762562952003;
-    rotation.at<double >(1, 1) = 0.9999696416803922;
-    rotation.at<double >(1, 2) = 0.007483839122310252;
-    rotation.at<double >(2, 0) = -0.005226254425586405;
-    rotation.at<double >(2, 1) = -0.007472415091295038;
-    rotation.at<double >(2, 2) = 0.9999584237743999;
-
-    translation.at<double >(0, 0) = -0.04598755491059946;
-    translation.at<double >(1, 0) = 9.878938204711128e-05;
-    translation.at<double >(2, 0) = 0.005470134429191416;
-
-    pfour.at<double >(0, 0) = 0.04598755491059946;
-    pfour.at<double >(1, 0) = 9.878938204711128e-05;
-    pfour.at<double >(2, 0) = 0.005470134429191416;
-
-    hconcat(rotation, translation, projection);     //concatenate rotation and translation to give projection matrix
-
-    const float r       = pow( (eye_x), 2) + pow( (eye_y), 2) ;            // radial distance from center
-    const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
-    const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
-    const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
-
-    const float ux = floor (fx * xprime + cx);   
-    const float vy = floor (fy * yprime + cy);   //yprime is my y''
-
-    //convert u,v points to pixel ints
-    int u = (int) floor(ux + 0.5); 
-    int v = (int) floor(vy + 0.5);
-
-    //6.14, p.162, Zisserman and Hartley Backprojection
-    pixelpts.at<double>(0,0) = eye_x   ;                  //2D points u, v
-    pixelpts.at<double>(1,0) = eye_y   ;
-    M = cameraMatrixColor * rotation;
-
-    Mat rotinv = rotation.inv();
-    reconstructed = rotinv * pixelpts - rotinv*translation;
-    uint16_t depthright  = (16.0f + depth.at<uint16_t>(eye_y, eye_x) ); 
+        KalmanFilter KF(2, 1, 0);
+        Mat state(2, 1, CV_32F); 
+        Mat processNoise(2, 1, CV_32F);
+        Mat measurement = Mat(1, 1, CV_32F, depthright);
     
-    fs.open(filename, cv::FileStorage::APPEND);
-    fs << "depthVal " << depthright;
-    fs.release();  
-    
-     //Put the values on the screen
-      std::ostringstream oss;
-      std::ostringstream osx;
-      std::ostringstream osz;
-      oss.str(" ");
-      osx.str(" ");
-      osz.str(" ");
-      oss << /*"Eye center: " << "(" << eye_x << ", " << eye_y << ") pixels"<<*/ " FacePoint: " << depthright << "mm";
-      osx << "Reconstruction: " << reconstructed;
-      osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")";
-      putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
-      //putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
-     // putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
-     // putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
-      cv::imshow( "ROS Faces/Features Viewer", detframe ); 
-  /*    }
-    }*/
+        KF.statePre.setTo(0);        
+        KF.statePre.at<float>(0, 0) = depthright;
+
+        KF.statePost.setTo(0);        
+        KF.statePost.at<float>(0, 0) = depthright;
+
+        KF.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
+
+        setIdentity(KF.measurementMatrix);
+        setIdentity(KF.processNoiseCov, Scalar::all(1e-5));
+        setIdentity(KF.measurementNoiseCov, Scalar::all(1.6539));
+        setIdentity(KF.errorCovPost, Scalar::all(.1));
+
+        Mat prediction = KF.predict(); 
+
+        // generate measurement
+        measurement += KF.measurementMatrix*state;
+
+        Mat update =  KF.correct(measurement);
+
+        float pred = prediction.at<float>(0);
+        float upd  = update.at<float>(0);
+
+        cout << "\nZ-Actual: " << depthright << endl;
+        cout << "new Z: " << measurement << 
+                        "   | Prediction: " << prediction.at<float>(0) << 
+                        "   | Update: " << update.at<float>(0) << endl;
+
+        cv::FileStorage fx;
+        const String estimates = "ROSPrediction.yaml";
+        fx.open(estimates, cv::FileStorage::APPEND);
+        fx << "prediction " << pred;
+        fx.release();
+
+        cv::FileStorage fy;
+        const String updates = "ROSUpdates.yaml";
+        fy.open(updates, cv::FileStorage::APPEND);
+        fy << "updates " << upd;
+        fy.release();
+
+        cv::FileStorage fz;
+        const String corrected = "ROSCorrected.yaml";
+        fz.open(corrected, cv::FileStorage::APPEND);
+        fz << "corrected " << measurement;
+        fz.release();
+
+        randn( processNoise, Scalar(0), Scalar::all(sqrt(KF.processNoiseCov.at<float>(0, 0))));
+        state = KF.transitionMatrix*state + processNoise;
+       }
+    }       
   }
-
  
   void cloudViewer()
   {
@@ -557,7 +509,7 @@ private:
         cv::Mat detframe, depthDisp;
         dispDepth(depth, depthDisp, 12000.0f);
         detframe = color.clone();  
-        detectAndDisplay(detframe, depthDisp );         
+        detectAndDisplay(detframe, depth );         
 
         visualizer->updatePointCloud(cloud, cloudName);
       }

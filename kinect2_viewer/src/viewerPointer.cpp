@@ -397,31 +397,57 @@ private:
    cv::imshow( "Face and Features Viewer", detframe );
   }
 
-  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
-  cv::Mat scalefactor     = cv::Mat::zeros(1, 1, CV_64F);  
-  cv::Mat scalecomps      = cv::Mat::zeros(1, 3, CV_64F);
-  cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+/cv::Mat rotation        = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat rotinv          = cv::Mat::eye(3, 3, CV_64F);  
+  cv::Mat M               = cv::Mat::eye(3, 3, CV_64F); 
+  cv::Mat Minv            = cv::Mat::eye(3, 3, CV_64F);
   cv::Mat translation     = cv::Mat::zeros(3, 1, CV_64F);
-  cv:: Mat pf             = cv::Mat::zeros(3, 1, CV_64F);  
-  cv::Mat camcenter       = cv::Mat::zeros(3, 1, CV_64F);
   cv::Mat projection      = cv::Mat::zeros(3, 4, CV_64F);     //[r1, r2, r3, t]
-  cv::Mat homocat         = cv::Mat::zeros(3, 3, CV_64F);     //[r1 , r2, t]
-  cv::Mat homographyraw   = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]  
-  cv::Mat homography      = cv::Mat::zeros(3, 3, CV_64F);     //K * [r1, r2, t]/t
   cv::Mat pixelpts        = cv::Mat::ones(3,1, CV_64F);      
+  cv::Mat pfour           = cv::Mat::zeros(3,1, CV_64F); 
+  cv::Mat M3              = cv::Mat::ones(1,3, CV_64F);
+  cv::Mat distortion      = cv::Mat::zeros(5, 1, CV_64F);
   cv::Mat reconstructed   = cv::Mat::ones(3,1, CV_64F);  
-  double s; 
-  int xprime, yprime;
-
-  void reconstruct(int eye_x, int eye_y)
+  
+  cv::FileStorage fs; const String filename = "depthPoints.yaml";
+  
+  void reconstruct(int eye_x, int eye_y, Mat depth, Mat detframe)
   {
+
+    std::chrono::time_point<std::chrono::high_resolution_clock> start, now;
+    double fps = 0;
+    size_t frameCount = 0;
+    std::ostringstream osa;
+
+   start = std::chrono::high_resolution_clock::now();
+    for(; running && ros::ok();)
+    {
+      if(updateImage)
+      {
+       lock.lock();
+        color = this->color;
+        depth = this->depth;
+        updateImage = false;
+        lock.unlock();
+
+        ++frameCount;
+        now = std::chrono::high_resolution_clock::now();
+        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() / 1000.0;
+        if(elapsed >= 1.0)
+        {
+          fps = frameCount / elapsed;
+          osa.str("");
+          start = now;
+          frameCount = 0;
+        }
+      // cout << "fps: " << fps << "Hz ( " << elapsed / frameCount * 1000.0 << " ms)" << endl;  
+
     //intrinsic parameters
     const float fx = cameraMatrixColor.at<double>(0, 0);
     const float fy = cameraMatrixColor.at<double>(1, 1);
-    const float cx = cameraMatrixColor.at<double>(0, 2);
-    const float cy = cameraMatrixColor.at<double>(1, 2);  
+    const float cx = cameraMatrixColor.at<double>(0, 2)// + 0.5;
+    const float cy = cameraMatrixColor.at<double>(1, 2)// + 0.5;  
 
-    //Couldn't figure a better way to retrieve the params from kinect2_bridge :(
     distortion.at<double >(0, 0) = 0.02732778206941041;
     distortion.at<double >(1, 0) = 0.06919310914717383;
     distortion.at<double >(2, 0) = -0.00305523856741313;
@@ -448,34 +474,13 @@ private:
     translation.at<double >(1, 0) = 9.878938204711128e-05;
     translation.at<double >(2, 0) = 0.005470134429191416;
 
-    //8.1, p.196, Zisserman and Hartley
-    homocat.at<double >(0, 0) = rotation.at<double >(0, 0);
-    homocat.at<double >(0, 1) = rotation.at<double >(0, 1);
-    homocat.at<double >(0, 2) = translation.at<double >(0, 0);
-    homocat.at<double >(1, 0) = rotation.at<double >(1, 0);
-    homocat.at<double >(1, 1) = rotation.at<double >(1, 1);
-    homocat.at<double >(1, 2) = translation.at<double >(1, 0);
-    homocat.at<double >(2, 0) = rotation.at<double >(2, 0);
-    homocat.at<double >(2, 1) = rotation.at<double >(2, 1);
-    homocat.at<double >(2, 2) = translation.at<double >(2, 0);
+    pfour.at<double >(0, 0) = 0.04598755491059946;
+    pfour.at<double >(1, 0) = 9.878938204711128e-05;
+    pfour.at<double >(2, 0) = 0.005470134429191416;
 
-    projection.at<double >(0, 0) = 526.33795064532;
-    projection.at<double >(0, 1) = 0;
-    projection.at<double >(0, 2) = 478.4995813884854;
-    projection.at<double >(0, 3) = 0;
-    projection.at<double >(1, 0) = 0;
-    projection.at<double >(1, 1) = 526.6946594095425;
-    projection.at<double >(1, 2) = 263.8883319922702;
-    projection.at<double >(1, 3) = 0;
-    projection.at<double >(2, 0) = 0;
-    projection.at<double >(2, 1) = 0;
-    projection.at<double >(2, 2) = 1;
-    projection.at<double >(2, 3) = 0;   
+    hconcat(rotation, translation, projection);     //concatenate rotation and translation to give projection matrix
 
-    homographyraw             = cameraMatrixColor * homocat;
-    homography                = homographyraw / translation.at<double>(2, 0);
-
-    const float r       = pow( (eye_x - cx), 2) + pow( (eye_y -cy), 2) ;            // radial distance from center
+    const float r       = pow( (eye_x), 2) + pow( (eye_y), 2) ;            // radial distance from center
     const float inner   = 1               + (k1 * r)           + (k2 * pow(r,2))  + (k3 * pow(r, 3));
     const float xprime  = (eye_x * inner) + (2 * p1 * eye_x * eye_y) + p2 * (r + 2 * pow(eye_x, 2) );   //xprime is my x''
     const float yprime  = (eye_y * inner) + (2 * p2 * eye_x * eye_y) + p1 * (r + 2 * pow(eye_y, 2) );   //yprime is my y''
@@ -487,34 +492,38 @@ private:
     int u = (int) floor(ux + 0.5); 
     int v = (int) floor(vy + 0.5);
 
-    //These are the values after accounting for radial distortion and tangential distortion
-    pixelpts.at<int>(0,0) = u;
-    pixelpts.at<int>(1,0) = v;
+    //6.14, p.162, Zisserman and Hartley Backprojection
+    pixelpts.at<double>(0,0) = eye_x   ;                  //2D points u, v
+    pixelpts.at<double>(1,0) = eye_y   ;
+    M = cameraMatrixColor * rotation;
 
-    //compute scale factor, k
-    scalecomps.at<double>(0, 0) = homocat.at<double >(2, 0);
-    scalecomps.at<double>(0, 1) = homocat.at<double >(2, 1);
-    scalecomps.at<double>(0, 2) = homocat.at<double >(2, 2);
-
-    scalefactor = scalecomps * pixelpts;                //s or k as you might call it
-
-    //last column of projection
-    pf.at<double >(0, 3) = projection.at<double >(0, 3);
-    pf.at<double >(1, 3) = projection.at<double >(1, 3);
-    pf.at<double >(2, 3) = projection.at<double >(2, 3);
-
-    Mat M = cameraMatrixColor * rotation ;            //M = KR
-    camcenter = -1.0 * M.inv() * pf;              //Find camera center
-
-    reconstructed = M.inv() * (pixelpts - pf );
-    cout <<"reconstruction = " << reconstructed << endl;
-
-/*
-    //project ::http://stackoverflow.com/questions/7836134/get-3d-coord-from-2d-image-pixel-if-we-know-extrinsic-and-intrinsic-parameters/10750648#10750648
-    reconstructed = homography * pixelpts;
-
-    cout <<"world coordinates = " << reconstructed << endl;*/
+    Mat rotinv = rotation.inv();
+    reconstructed = rotinv * pixelpts - rotinv*translation;
+    uint16_t depthright  = (16.0f + depth.at<uint16_t>(eye_y, eye_x) ); 
+    
+    fs.open(filename, cv::FileStorage::APPEND);
+    fs << "depthVal " << depthright;
+    fs.release();  
+    
+     //Put the values on the screen
+      std::ostringstream oss;
+      std::ostringstream osx;
+      std::ostringstream osz;
+      oss.str(" ");
+      osx.str(" ");
+      osz.str(" ");
+      oss << " FacePoint: " << depthright << "mm";
+      osx << "Reconstruction: " << reconstructed;
+      osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")";
+      putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
+      //putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
+     // putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
+     // putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
+      cv::imshow( "ROS Faces/Features Viewer", detframe ); 
+     }
+    }
   }
+
   
   void cloudViewer()
   {
