@@ -516,9 +516,6 @@ private:
       osx << "Reconstruction: " << reconstructed;
       osz << "(X,Y,Z): " << "(" << eye_x * depthright  <<", " << eye_y * depthright <<", " << depthright << ")";
       putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
-      //putText(detframe, osx.str(), Point(20,55), font, sizeText, colorText, lineText,CV_AA);
-     // putText(detframe, osz.str(), Point(20,75), font, sizeText, colorText, lineText,CV_AA);
-     // putText(detframe, osa.str(), Point(20,95), font, sizeText, colorText, lineText,CV_AA);
       cv::imshow( "ROS Faces/Features Viewer", detframe ); 
      }
     }
