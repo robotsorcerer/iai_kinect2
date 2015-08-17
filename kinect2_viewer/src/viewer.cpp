@@ -14,6 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <fcntl.h>      //unix headers
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -78,11 +82,25 @@ static const double sizeText = 0.5;
 static const int lineText = 1;
 static const int font = cv::FONT_HERSHEY_SIMPLEX;
 
+KalmanFilter KF(2, 1, 0);
+Mat processNoise(2, 1, CV_32F);
+Mat state(2, 1, CV_32F);
+
+  
+const float Qt = 1500.0;
+const float Rt = 30;
+
+static inline Point calcPoint(Point2f center, double R, double angle)
+{
+    return center + Point2f((float)cos(angle), (float)-sin(angle))*(float)R;
+}
+
 std::ostringstream oss;
 
 /** Function Headers */
 void detectAndDisplay( Mat detframe, Mat depth );
 void reconstruct( int right_x, int right_y, Mat depth, Mat detframe );
+int  talker(float rosdepth, float rosobs, float rospred, float rosupd) ; 
 
 class Receiver
 {
@@ -347,6 +365,7 @@ private:
   cv::FileStorage fs; 
 
   const String filename = "ROSFacePoints.yaml";
+  //bool init=false;
 
   void detectAndDisplay( Mat detframe, Mat depth )
   {
@@ -362,10 +381,19 @@ private:
     face_cascade.load( face_cascade_name );
     eyes_cascade.load( eyes_cascade_name );
 
-    //-- Detect faces
-    face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) );
+   //-- Detect faces
+    face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) ); 
+
+    //KF.statePre.setTo(0);
+    //KF.statePost.setTo(0);
+    //KF.statePost = *(Mat_<float>(2, 1) << 600, 0);
+
+
     for( size_t i = 0; i < faces.size(); ++i )
-    {
+    {    
+      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
+      start = chrono::high_resolution_clock::now(); 
+
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
       rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
@@ -375,26 +403,28 @@ private:
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
-      start = chrono::high_resolution_clock::now(); 
-      for( size_t j = 0; j < eyes.size(); j++, ++frameCount )
-       {        
-        end = chrono::high_resolution_clock::now();   
-        double deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
+      
+      //KF.gain<float>.at(0) = 0.2;
+      //cout<< "KF.measurementNoiseCov: " << KF.measurementNoiseCov << endl;
+
+      for( size_t j = 0; j < eyes.size(); ++j, ++frameCount )
+      {        
 
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         circle( detframe, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
+
+        end = chrono::high_resolution_clock::now();   
+        double deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
     
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y;
 
-        uint16_t depthright  = depth.at<uint16_t>(eye_y, eye_x); 
-        cout << "ROS Actual: " << depthright << "mm   | ROS Adjusted: " << depthright + 16.0f << "mm" << endl;
+        uint16_t rosdepth  = depth.at<uint16_t>(eye_y, eye_x); 
 
         std::ostringstream oss;
         std::ostringstream osf;
         oss.str(" ");
-        oss <<"Face Point: " << depthright << " mm";
+        oss <<"Face Point: " << rosdepth << " mm";
 
         if(deltaT >= 1.0)
         {
@@ -410,66 +440,112 @@ private:
         imshow( "ROS Features Viewer", detframe ); 
 
         fs.open(filename, cv::FileStorage::APPEND);
-        fs << "depthVal " << depthright;
+        fs << "depthVal " << rosdepth;
         fs.release();
 
-        KalmanFilter KF(2, 1, 0);
-        Mat state(2, 1, CV_32F); 
-        Mat processNoise(2, 1, CV_32F);
-        Mat measurement = Mat(1, 1, CV_32F, depthright);
-    
-        KF.statePre.setTo(0);        
-        KF.statePre.at<float>(0, 0) = depthright;
+        Mat measurement = Mat(1, 1, CV_32F, rosdepth);
 
-        KF.statePost.setTo(0);        
-        KF.statePost.at<float>(0, 0) = depthright;
+        //Make Q(k) a random walk
+        float q11 = Qt*pow(deltaT, 4)/4.0 ;
+        float q12 = Qt*pow(deltaT, 2)/2.0 ;
+        float q21 = Qt*pow(deltaT, 2)/2.0 ;
+        float q22 =  Qt*deltaT ;
+
+         KF.processNoiseCov = *(Mat_<float>(2,2) << q11, q12, q21, q22);
+       // KF.measurementNoiseCov = Q ;
 
         KF.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
 
-        setIdentity(KF.measurementMatrix);
-        setIdentity(KF.processNoiseCov, Scalar::all(1e-5));
-        setIdentity(KF.measurementNoiseCov, Scalar::all(1.6539));
-        setIdentity(KF.errorCovPost, Scalar::all(.1));
-
         Mat prediction = KF.predict(); 
 
-        // generate measurement
-        measurement += KF.measurementMatrix*state;
+        Mat update =  KF.correct(measurement); 
 
-        Mat update =  KF.correct(measurement);
+        float rospred = prediction.at<float>(0);
+        float rosupd  = update.at<float>(0);
+        float rosobs = measurement.at<float>(0); 
 
-        float pred = prediction.at<float>(0);
-        float upd  = update.at<float>(0);
+        cout << "\n\nKF.statePre: " << KF.statePre << 
+                 "  | KF Gain: " << KF.gain <<
+                 "\nMeasurement Matrix, H: " << KF.measurementMatrix <<
+                 "  | KF.statePost: " << KF.statePost <<
+                 "\nKF.processNoiseCov: " << KF.processNoiseCov <<                 
+                 "  | deltaT: " << deltaT <<
+                 "\nKF.measurementNoiseCov: " << KF.measurementNoiseCov << endl;
 
-        cout << "\nZ-Actual: " << depthright << endl;
-        cout << "new Z: " << measurement << 
-                        "   | Prediction: " << prediction.at<float>(0) << 
-                        "   | Update: " << update.at<float>(0) << endl;
+        //randn( processNoise, Scalar(0), Scalar::all(sqrt(KF.processNoiseCov.at<float>(0, 0))));
+        //state = KF.transitionMatrix*state ;//+ processNoise;
+
+        //imshow("Points", img);
+
+        talker(rosdepth, rosobs, rospred, rosupd) ;      //talk values in a named pipe
 
         cv::FileStorage fx;
         const String estimates = "ROSPrediction.yaml";
         fx.open(estimates, cv::FileStorage::APPEND);
-        fx << "prediction " << pred;
+        fx << "prediction" << rospred;
         fx.release();
 
         cv::FileStorage fy;
         const String updates = "ROSUpdates.yaml";
         fy.open(updates, cv::FileStorage::APPEND);
-        fy << "updates " << upd;
+        fy << "updates" << rosupd;
         fy.release();
 
         cv::FileStorage fz;
         const String corrected = "ROSCorrected.yaml";
         fz.open(corrected, cv::FileStorage::APPEND);
-        fz << "corrected " << measurement;
+        fz << "corrected" << rosobs;
         fz.release();
 
-        randn( processNoise, Scalar(0), Scalar::all(sqrt(KF.processNoiseCov.at<float>(0, 0))));
-        state = KF.transitionMatrix*state + processNoise;
        }
     }       
   }
- 
+  
+  /* Communicate Kalman values in a pipe*/
+  int talker(float rosdepth, float rosobs, float rospred, float rosupd)
+  {
+    int rosfd, rosfm, rosfp, rosfu;
+
+    const char * myrosfifo = "/tmp/myrosfifo";
+
+    mkfifo(myrosfifo, 0666);                           /* create the FIFO (named pipe) */
+    rosfd = open(myrosfifo, O_WRONLY/* | O_NONBLOCK*/);      
+    write(rosfd, &rosdepth, sizeof(rosdepth) );  
+    close(rosfd);
+    /* Don't delete the FIFO yet. The reader may not have opened  it yet. */
+    //unlink(myfifo);       
+
+   //Measurement FIFO
+    const char * rosobsfifo = "/tmp/rosobsfifo";
+
+    mkfifo(rosobsfifo, 0666);                       
+    rosfm = open(rosobsfifo, O_WRONLY);         
+    write(rosfm, &rosobs, sizeof(rosobs) ); 
+    close(rosfm);        
+
+    //Kalman Prediction FIFO
+    const char * rospredfifo = "/tmp/rospredfifo";
+
+    mkfifo(rospredfifo, 0666);                       
+    rosfp = open(rospredfifo, O_WRONLY);          
+    write(rosfp, &rospred, sizeof(rospred) ); 
+    close(rosfp);    
+
+    cout <<"depth: " << rosdepth <<
+            "   | rosobs: " << rosobs <<
+            "   | rospred: " << rospred <<
+            "   | rosupdate: " << rosupd << endl;    
+
+    //Kalman Update FIFO
+    const char * rosupdfifo = "/tmp/rosupdfifo";
+    mkfifo(rosupdfifo, 0666);                       
+    rosfu = open(rosupdfifo, O_WRONLY);           
+    write(rosfu, &rosupd, sizeof(rosupd) );   
+    close(rosfu);
+
+    return 0;
+  }
+
   void cloudViewer()
   {
     cv::Mat color, depth;
@@ -700,6 +776,14 @@ int main(int argc, char **argv)
   {
     return 0;
   }
+
+
+  setIdentity(KF.measurementMatrix);
+  setIdentity(KF.processNoiseCov, Scalar::all(Qt));
+  setIdentity(KF.measurementNoiseCov, Scalar::all(Rt));
+  setIdentity(KF.errorCovPost, Scalar::all(1));
+
+  KF.statePost.at<float>(0) = 600;
 
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
