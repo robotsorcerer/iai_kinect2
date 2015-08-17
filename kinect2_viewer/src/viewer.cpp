@@ -365,7 +365,6 @@ private:
   cv::FileStorage fs; 
 
   const String filename = "ROSFacePoints.yaml";
-  //bool init=false;
 
   void detectAndDisplay( Mat detframe, Mat depth )
   {
@@ -384,16 +383,10 @@ private:
    //-- Detect faces
     face_cascade.detectMultiScale( frame_gray, faces, 1.1, 2, 0|CV_HAAR_SCALE_IMAGE, Size(30, 30) ); 
 
-    //KF.statePre.setTo(0);
-    //KF.statePost.setTo(0);
-    //KF.statePost = *(Mat_<float>(2, 1) << 600, 0);
-
-
     for( size_t i = 0; i < faces.size(); ++i )
     {    
       std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
-      start = chrono::high_resolution_clock::now(); 
-
+      start = chrono::high_resolution_clock::now();
       Point vertex_one ( faces[i].x, faces[i].y);      
       Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
       rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
@@ -403,18 +396,11 @@ private:
 
       eyes_cascade.detectMultiScale( faceROI, eyes, 1.1, 2, 0 |CV_HAAR_SCALE_IMAGE, Size(30, 30) );
 
-      
-      //KF.gain<float>.at(0) = 0.2;
-      //cout<< "KF.measurementNoiseCov: " << KF.measurementNoiseCov << endl;
-
       for( size_t j = 0; j < eyes.size(); ++j, ++frameCount )
-      {        
+      { 
 
         Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
         circle( detframe, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
-
-        end = chrono::high_resolution_clock::now();   
-        double deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
     
         int eye_x = eye_center.x;        
         int eye_y = eye_center.y;
@@ -426,15 +412,6 @@ private:
         oss.str(" ");
         oss <<"Face Point: " << rosdepth << " mm";
 
-        if(deltaT >= 1.0)
-        {
-          fps = frameCount / deltaT;
-          osf.str("");
-          osf << "fps: " << fps << " ( " << deltaT / frameCount * 1000.0 << " ms)";
-          start = end;
-          frameCount = 0;
-        }
-
         putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
         putText(detframe, osf.str(), Point(20,65), font, sizeText, colorText, lineText,CV_AA);
         imshow( "ROS Features Viewer", detframe ); 
@@ -444,15 +421,25 @@ private:
         fs.release();
 
         Mat measurement = Mat(1, 1, CV_32F, rosdepth);
-
+        
+        end = chrono::high_resolution_clock::now();   
+        double deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
+        
+        if(deltaT >= 1.0)
+        {
+          fps = frameCount / deltaT;
+          osf.str("");
+          osf << "fps: " << fps << " ( " << deltaT / frameCount * 1000.0 << " ms)";
+          start = end;
+          frameCount = 0;
+        }
         //Make Q(k) a random walk
         float q11 = Qt*pow(deltaT, 4)/4.0 ;
         float q12 = Qt*pow(deltaT, 2)/2.0 ;
         float q21 = Qt*pow(deltaT, 2)/2.0 ;
         float q22 =  Qt*deltaT ;
 
-         KF.processNoiseCov = *(Mat_<float>(2,2) << q11, q12, q21, q22);
-       // KF.measurementNoiseCov = Q ;
+        KF.processNoiseCov = *(Mat_<float>(2,2) << q11, q12, q21, q22);
 
         KF.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
 
@@ -474,8 +461,6 @@ private:
 
         //randn( processNoise, Scalar(0), Scalar::all(sqrt(KF.processNoiseCov.at<float>(0, 0))));
         //state = KF.transitionMatrix*state ;//+ processNoise;
-
-        //imshow("Points", img);
 
         talker(rosdepth, rosobs, rospred, rosupd) ;      //talk values in a named pipe
 
@@ -783,7 +768,7 @@ int main(int argc, char **argv)
   setIdentity(KF.measurementNoiseCov, Scalar::all(Rt));
   setIdentity(KF.errorCovPost, Scalar::all(1));
 
-  KF.statePost.at<float>(0) = 600;
+  KF.statePost.at<float>(0) = 640;
 
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
