@@ -231,7 +231,7 @@ private:
     priv_nh.param("depth_method", depth_method, depthDefault);
     priv_nh.param("depth_device", depth_dev, -1);
     priv_nh.param("reg_method", reg_method, regDefault);
-    priv_nh.param("reg_devive", reg_dev, -1);
+    priv_nh.param("reg_device", reg_dev, -1);
     priv_nh.param("max_depth", maxDepth, 12.0);
     priv_nh.param("min_depth", minDepth, 0.1);
     priv_nh.param("queue_size", queueSize, 2);
@@ -255,7 +255,7 @@ private:
               << "     depth_method: " << depth_method << std::endl
               << "     depth_device: " << depth_dev << std::endl
               << "       reg_method: " << reg_method << std::endl
-              << "       reg_devive: " << reg_dev << std::endl
+              << "       reg_device: " << reg_dev << std::endl
               << "        max_depth: " << maxDepth << std::endl
               << "        min_depth: " << minDepth << std::endl
               << "       queue_size: " << queueSize << std::endl
