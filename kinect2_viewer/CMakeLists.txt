@@ -19,10 +19,14 @@ ELSE()
   MESSAGE(ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
 ENDIF()
 
+set(MY_DIR ${kinect2_viewer_SOURCE_DIR})
+
 find_package(catkin REQUIRED COMPONENTS roscpp rostime std_msgs sensor_msgs message_filters cv_bridge image_transport compressed_image_transport compressed_depth_image_transport kinect2_bridge)
 
 ## System dependencies are found with CMake's conventions
+find_package(PkgConfig)
 find_package(OpenCV REQUIRED)
+pkg_check_modules( EIGEN3 REQUIRED eigen3 )
 find_package(OpenMP)
 find_package(PCL REQUIRED)
 
@@ -67,8 +71,12 @@ include_directories(include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIR}
   ${PCL_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
   ${kinect2_bridge_INCLUDE_DIRS}
+  "${MY_DIR}/include"
 )
+
+add_definitions(${EIGEN_DEFINITIONS})
 
 add_executable(kinect2_viewer src/viewer.cpp)
 target_link_libraries(kinect2_viewer
@@ -77,7 +85,9 @@ target_link_libraries(kinect2_viewer
   ${PCL_LIBRARIES}
   ${kinect2_bridge_LIBRARIES}
 )
-
+message(STATUS             "\n\nSavitzky include path")
+message(STATUS               "${MY_DIR}/include")
+message(STATUS "\n\nEigen3 include path: ${EIGEN3_INCLUDE_DIRS}\n")
 #############
 ## Install ##
 #############

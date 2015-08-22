@@ -55,17 +55,19 @@
 #include <message_filters/sync_policies/approximate_time.h>
 
 #include <kinect2_bridge/kinect2_definitions.h>
- #include "omp.h"
+
+#include "savgol.h"
+#include <iostream>
+#include <cmath>
 
 
 using namespace std;
 using namespace cv;
+using namespace Eigen;
 using namespace cv::gpu;
 
 /** Global variables */
 const String face_cascade_name = "haarcascade_frontalface_alt.xml";
-//const String face_cascade_name = "lbpcascade_profileface.xml";
-//const String face_cascade_name = "lbpcascade_profileface.xml";
 const String eyes_cascade_name = "haarcascade_eye.xml";
 
 CascadeClassifier face_cascade;
@@ -84,12 +86,20 @@ static const int lineText = 1;
 static const int font = cv::FONT_HERSHEY_SIMPLEX;
 
 KalmanFilter KF(2, 1, 0);
+KalmanFilter KF2(2,1, 0);
 Mat processNoise(2, 1, CV_32F);
 Mat state(2, 1, CV_32F);
+
+const int F = 5;      //Frame Size
+const int k = 3;      //Example Polynomial Order
+const double Fd = (double) F;        //sets the frame size for the savgol differentiation coefficients. This must be odd
+
 uint16_t rosdepth;
   
 const float Qt = 1500.0;
 const float Rt = 30;
+
+const float Rt2 = 4.6325;
 
 std::ostringstream oss;
 
@@ -97,6 +107,10 @@ std::ostringstream oss;
 void detectAndDisplay( Mat detframe, Mat depth );
 void talker(float rosobs, float rospred, float rosupd) ; 
 void kalman(float deltaT, Mat measurement);
+void kalman2(float& deltaT,float& rosupd);
+MatrixXi vander(const int F);
+MatrixXf sgdiff(int k, double Fd);
+RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F, MatrixXf DIM);
 
 class Receiver
 {
@@ -283,7 +297,160 @@ private:
     updateCloud = true;
     lock.unlock();
   }
+
+  /*Compute the polynomial basis vectors s_0, s_1, s_2 ... s_n using the vandermonde matrix.*/
+  MatrixXi vander(const int F)
+  {
+    VectorXi v = VectorXi::LinSpaced(F,(-(F-1)/2),((F-1)/2)).transpose().eval();
+
+    MatrixXi A(F, F+1);     //We basically compute an F X F+1 matrix;
+
+    for(int i = 0; i < F; ++ i)
+    {
+     for(int j=1; j < F+1; ++j)
+      {
+       A(i,j) = pow(v(i), (j-1) ); 
+      }
+    }
+
+    A = A.block(0, 1, F, F );   //and retrieve the right F X F matrix block, excluding the first column block to find the vandermonde matrix.
+
+    return A;
+  }
   
+  /*Compute the S-Golay Matrix of differentiators*/
+MatrixXf sgdiff(int k, double Fd)
+{
+  //We set the weighting matrix to an identity matrix if no weighting matrix is supplied
+  MatrixXf W = MatrixXf::Identity(Fd, Fd);      
+
+  //Compute Projection Matrix B
+  MatrixXi s = vander(F);   
+
+  //Retrieve the rank deficient matrix from the projection matrix
+  MatrixXi S = s.block(0, 0, s.rows(), (k+1) ) ; 
+
+  //Compute sqrt(W)*S
+  MatrixXf Sd = S.cast<float> ();    //cast S to float
+  MatrixXf inter = W * Sd;              //W is assumed to be identity. Change this if you have reasons to.
+
+  //Compute the QR Decomposition
+  HouseholderQR<MatrixXf> qr(inter);
+  qr.compute(inter);
+
+  FullPivLU<MatrixXf>lu_decomp(inter);      //retrieve rank of matrix
+  
+  int Rank = lu_decomp.rank() ;
+   
+  //For rank deficient matrices. The S matrix block will always be rank deficient.        
+  MatrixXf Q = qr.householderQ();
+  MatrixXf R = qr.matrixQR().topLeftCorner(Rank, Rank).template triangularView<Upper>();
+
+  //Compute Matrix of Differentiators
+  MatrixXf Rinv = R.inverse();
+  MatrixXf RinvT = Rinv.transpose();
+
+  MatrixXf G = Sd * Rinv * RinvT;           /*G = S(S'S)^(-1)   -- eqn 8.3.90 (matrix of differentiation filters)*/
+ 
+  MatrixXf SdT = Sd.transpose().eval();
+
+  MatrixXf B = G * SdT * W;   //SG-Smoothing filters of length F and polynomial order k
+
+  return B;
+}
+
+RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
+{  
+  Matrix4f DIM = Matrix4f::Zero();        //initialize DIM as a matrix of zeros if it is not supplied
+  int siz = x.size();       //Reshape depth values by working along the first non-singleton dimension
+
+  //Find leading singleton dimensions
+  
+  MatrixXf B = sgdiff(k, Fd);       //retrieve matrix B
+
+  /*Transient On*/
+  int id_size = (F+1)/2 - 1;
+  MatrixXf Bbutt = B.bottomLeftCorner((F-1)/2, B.cols());
+
+  int n = Bbutt.rows();
+  //flip Bbutt from top all the way down 
+  MatrixXf Bbuttflipped(n, Bbutt.cols());
+ 
+    for(int j = n - 1; j >= 0;)
+    { 
+      for(int i = 0; i < n ; ++i)
+      {        
+        Bbuttflipped.row(i) = Bbutt.row(j);
+        j--;
+      }
+    }
+    
+  //flip x_on up and down as above
+  VectorXf x_onflipped(x_on.rows(), x_on.cols());  //pre-allocate
+  x_onflipped.transpose().eval();     
+
+  int m = x_on.size();                          //retrieve total # coefficients
+
+    for(int j = m -1; j >=0;)
+    {
+      for(int i = 0; i < m; ++i)
+      {
+        x_onflipped.row(i) = x_on.row(j);
+        j--;
+      }
+    }
+  
+  VectorXf y_on = Bbuttflipped * x_onflipped;  //Now compute the transient on
+
+ /*Compute the steady state output*/
+  size_t idzeroth = floor(B.cols()/2);
+  VectorXf Bzeroth = B.col(idzeroth);
+  VectorXf Bzerothf = Bzeroth.cast<float>();
+
+  VectorXf y_ss = Bzerothf.transpose().eval() * x;     //This is the steady-state smoothed value
+
+  /*Compute the transient off for non-sequential data*/
+  MatrixXf Boff = B.topLeftCorner((F-1)/2, B.cols());
+
+  int p = Boff.rows();                        //flip Boff along the horizontal axis
+
+  MatrixXf Boff_flipped(p, Boff.cols());
+    
+  for(int j = p - 1; j >= 0;)
+  { 
+    for(int i = 0; i < p ; ++i)
+    {        
+      Boff_flipped.row(i) = Boff.row(j);
+      j--;
+    }
+  }
+
+/*x_off will be the last (F-1) x values. Note, if you are smoothing in real time, you need to find 
+  a way to let your compiler pick the last F-length samples from your data in order to compute your x_off. 
+  You could have the program wait for x_milliseconds before you pick 
+  the transient off, for example*/
+  VectorXf x_off = VectorXf::LinSpaced(F, x(0), x(F-1)).transpose();  
+  VectorXf x_offflipped(x_off.rows(), x_off.cols());      //pre-allocate    
+  //flip x_off along the horizontal axis
+    int q = x_off.size();                          //retrieve total # coefficients
+
+    for(int j = q -1; j >=0;)
+    {
+      for(int i = 0; i < q; ++i)
+      {
+        x_offflipped.row(i) = x_on.row(j);
+        j--;
+      }
+    }
+  VectorXf y_off = Boff_flipped * x_offflipped;   //This is the transient off
+
+  /*Make Y into the shape of X and retuen the smoothed values!*/
+  RowVectorXf y(F);
+  y << y_off.transpose().eval(), y_ss, y_on.transpose().eval();
+
+  return y;
+}
+
   double elapsed;  
   long frmCnt = 0;
   double totalT = 0.0;
@@ -312,6 +479,22 @@ private:
     int interpol=INTER_LINEAR;
 
     begin = std::chrono::high_resolution_clock::now();
+
+    MatrixXi s = vander(F);        //Compute vandermonde matrix
+
+    cout << "\n Vandermonde Matrix: \n" << s  << endl;
+
+    MatrixXf B = sgdiff(k, Fd);
+
+    VectorXf x_on = VectorXf::LinSpaced(F, 940, 960);     //collect the first five values into a matrix
+
+    //To express as a real filtering operation, we shift x around the nth time instant
+    VectorXf x = VectorXf::LinSpaced(F, 900.0, 980.0);
+
+    RowVectorXf Filter = savgolfilt(x, x_on, k, F);
+
+    cout <<"\n\nFiltered values in the range \n" << x.transpose().eval() <<"\n are: \n" << Filter << endl;
+
     for(; running && ros::ok();)
     {
       if(updateImage)
@@ -425,7 +608,6 @@ private:
         }   
       }
         imshow( "ROS Features Viewer", color_resized ); 
-        //imshow( "Color_resized", color_resized ); 
 
       int key = cv::waitKey(1);
       switch(key & 0xFF)
@@ -465,6 +647,8 @@ private:
 
       KF.processNoiseCov *=Qt;
 
+      cout <<"measurement noise cov: " << KF.measurementNoiseCov << endl;
+
       KF.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
 
       Mat prediction = KF.predict(); 
@@ -475,8 +659,9 @@ private:
       float rosupd  = update.at<float>(0);
       float rosobs = measurement.at<float>(0); 
 
+      kalman2(deltaT, rosupd);
       talker(rosobs, rospred, rosupd) ;      //talk values in a named pipe
-/*
+
         cv::FileStorage fx;
         const String estimates = "ROSPrediction.yaml";
         fx.open(estimates, cv::FileStorage::APPEND);
@@ -493,7 +678,54 @@ private:
         const String corrected = "ROSCorrected.yaml";
         fz.open(corrected, cv::FileStorage::APPEND);
         fz << "corrected" << rosobs;
-        fz.release(); */
+        fz.release(); 
+  }
+
+  void kalman2(float& deltaT,float& rosupd)
+  {
+      Mat measuresq = Mat(1, 1, CV_32F, rosupd);
+      //Make Q(k) a random walk
+      float q11 = pow(deltaT, 4)/4.0 ;
+      float q12 = pow(deltaT, 3)/2.0 ;
+      float q21 = pow(deltaT, 3)/2.0 ;
+      float q22 = pow(deltaT, 2) ;
+
+      KF2.processNoiseCov = *(Mat_<float>(2,2) << q11, q12, q21, q22);
+
+      KF2.processNoiseCov *=Qt;
+
+      KF2.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
+
+      Mat prediction2 = KF2.predict(); 
+
+      Mat update2 =  KF2.correct(measuresq); 
+
+      float rospred2 = prediction2.at<float>(0);
+      float rosupd2  = update2.at<float>(0);
+      float rosobs2 = measuresq.at<float>(0); 
+
+
+      cout << "obs2: " << rosobs2 <<
+              " | pred2: " << rospred2 <<
+              " | update2: " << rosupd2 << endl;
+
+      cv::FileStorage fa;
+      const String estimates2 = "ROSPrediction2.yaml";
+      fa.open(estimates2, cv::FileStorage::APPEND);
+      fa << "prediction" << rospred2;
+      fa.release();
+
+      cv::FileStorage fb;
+      const String updates2 = "ROSUpdates2.yaml";
+      fb.open(updates2, cv::FileStorage::APPEND);
+      fb << "updates2" << rosupd2;
+      fb.release();
+
+      cv::FileStorage fc;
+      const String corrected2 = "ROSCorrected2.yaml";
+      fc.open(corrected2, cv::FileStorage::APPEND);
+      fc << "corrected2" << rosobs2;
+      fc.release(); 
   }
 
   /* Communicate Kalman values in a pipe*/
@@ -787,7 +1019,15 @@ int main(int argc, char **argv)
   setIdentity(KF.measurementNoiseCov, Scalar::all(Rt));
   setIdentity(KF.errorCovPost, Scalar::all(1));
 
-  KF.statePost.at<float>(0) = 650;          //initialize kalman posteriori
+  KF.statePost.at<float>(0) = 730;          //initialize kalman posteriori
+
+//second kalman
+  setIdentity(KF2.measurementMatrix);
+  setIdentity(KF2.processNoiseCov, Scalar::all(Qt));
+  setIdentity(KF2.measurementNoiseCov, Scalar::all(Rt2));
+  setIdentity(KF2.errorCovPost, Scalar::all(1));
+
+  KF2.statePost.at<float>(0) = 730;          //initialize kalman posteriori
 
   std::string ns = K2_DEFAULT_NS;
   std::string topicColor = K2_TOPIC_QHD K2_TOPIC_IMAGE_COLOR K2_TOPIC_IMAGE_RECT;
