@@ -63,9 +63,9 @@ using namespace cv;
 using namespace cv::gpu;
 
 /** Global variables */
-const String face_cascade_name = "haarcascade_frontalface_alt2.xml";
-//String face_cascade_name = "lbpcascade_frontalface.xml";
-//String face_cascade_name = "lbpcascade_profileface.xml";
+const String face_cascade_name = "haarcascade_frontalface_alt.xml";
+//const String face_cascade_name = "lbpcascade_profileface.xml";
+//const String face_cascade_name = "lbpcascade_profileface.xml";
 const String eyes_cascade_name = "haarcascade_eye.xml";
 
 CascadeClassifier face_cascade;
@@ -285,16 +285,31 @@ private:
   }
   
   double elapsed;  
+  long frmCnt = 0;
+  double totalT = 0.0;
+  GpuMat faces;
+  Mat faces_host;
+  GpuMat eyes; 
+  Mat eyes_host;
+  Mat gray_resized, color_resized;
 
   void imageViewer()
   {
-    cv::Mat color, depth, depthDisp, combined, detframe;
+    cv::Mat color, depth, depthDisp;
+
     std::chrono::time_point<std::chrono::high_resolution_clock> begin, now;    
     size_t frameCount = 0;
     double fps = 0;
     std::ostringstream oss;
 
+    cv::namedWindow("ROS Features Viewer");
+    //cv::namedWindow("Color_resized");
     oss << "starting...";
+
+    Size dsize;
+    double fx = 0.5;
+    double fy = 0.5;
+    int interpol=INTER_LINEAR;
 
     begin = std::chrono::high_resolution_clock::now();
     for(; running && ros::ok();)
@@ -307,7 +322,7 @@ private:
         updateImage = false;
         lock.unlock();
 
-      //  double t = (double)getTickCount();
+
         now = std::chrono::high_resolution_clock::now();        
         ++frameCount;
         elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - begin).count() / 1000.0;
@@ -320,27 +335,32 @@ private:
           begin = now;
           frameCount = 0;
         }
-
-        cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
+        cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
+        double t = (double)getTickCount();
 
         Mat frame_gray;
         cvtColor( color, frame_gray, CV_BGR2GRAY );
         equalizeHist( frame_gray, frame_gray );
+        
+        resize(frame_gray, gray_resized, Size(), fx, fy, interpol);
+        resize(color, color_resized, Size(), fx, fy, interpol);         //for opencv window
 
-
-        GpuMat frame_gray_gpu(frame_gray);            //move grayed color image to gpu
+        //GpuMat frame_gray_gpu(frame_gray);                  //move grayed color image to gpu
+        GpuMat frame_gray_gpu(gray_resized);                  //move grayed color image to gpu
+        cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
 
         const double scaleFactor = 1.2;
         const int minNeighbors = 6;
-        const Size face_maxSize = Size(30, 30);
-        const Size face_minSize = Size(20, 20);
+
+        const Size face_maxSize = Size(20, 20);
+        const Size face_minSize = Size(5, 5);
 
         //-- Detect faces    
-        GpuMat faces;
-        int faces_detect = face_cascade_gpu.detectMultiScale(frame_gray_gpu, faces, face_maxSize, face_minSize, scaleFactor, minNeighbors);
-        Mat faces_host;
+        faces.create(1, 100, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
 
-        /*Download only detected faces to cpu*/
+        int faces_detect = face_cascade_gpu.detectMultiScale(frame_gray_gpu, faces, face_maxSize, face_minSize, scaleFactor, minNeighbors);
+
+        //Download only detected faces to cpu
         faces.colRange(0, faces_detect).download(faces_host);   
 
         frame_gray_gpu.release();
@@ -348,7 +368,13 @@ private:
 
         Rect* cfaces = faces_host.ptr<Rect>();                              // faces result are now in "faces_host"
 
-        //#pragma omp parallel for
+        t = ( (double)getTickCount() - t)/getTickFrequency();               //measure total time to detect and download
+
+        totalT += t;
+        ++frmCnt;
+
+        cout << "fps: " << 1.0 / (totalT / (double)frmCnt) << endl;
+
         for( int i = 0; i < faces_detect; ++i )
         {    
           std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
@@ -356,46 +382,30 @@ private:
 
           Point vertex_one ( cfaces[i].x, cfaces[i].y);      
           Point vertex_two ( cfaces[i].x + cfaces[i].width, cfaces[i].y + cfaces[i].height);
-          rectangle(color, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
-          //rectangle(color, cfaces[i], Scalar(0, 255, 0) );
+          rectangle(color, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );          
+          rectangle(color_resized, vertex_one, vertex_two, Scalar(255, 255, 0), 2, 4, 0 );
 
-          Mat faceROI = frame_gray( cfaces[i] );
+          Mat faceROI = gray_resized( cfaces[i] );
 
-          GpuMat faceROIGpu(faceROI);           //convert faceROI to GpuMat container
+          GpuMat faceROIGpu(faceROI);                                   //convert faceROI to GpuMat container
          
-          /*in each face detect eyes*/
-          GpuMat eyes;        
-
-          int eyes_detect = eyes_cascade_gpu.detectMultiScale( faceROIGpu, eyes, face_maxSize, face_minSize, scaleFactor, minNeighbors);
-          
-          faceROIGpu.release();                   //free memory immediately
+          int eyes_detect = eyes_cascade_gpu.detectMultiScale(faceROIGpu, eyes, face_maxSize, face_minSize, scaleFactor, minNeighbors);
 
           cout << "eyes_detect: " << eyes_detect << endl;
-          Mat eyes_host;
-
-          //copy eyes to cpu
+          //Download only detected eyes to cpu
           eyes.colRange(0, eyes_detect).download(eyes_host);
-          
-          eyes.release();
+
+          faceROIGpu.release();                           //free memory immediately          
+          eyes.release();                                 //free mem immediately
 
           Rect* ceyes = eyes_host.ptr<Rect>();                        //eyes result now in eyes_host
 
-          //eyes_host.release();        //free eyes_host memory
-
-          //#pragma omp parallel for
           for( int j = 0; j < eyes_detect; ++j )
           { 
-            Point eye_center( cfaces[i].x + ceyes[j].x + ceyes[j].width/2, cfaces[i].y + ceyes[j].y + ceyes[j].height/2 );
+            Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/4.2), (cfaces[i].y + ceyes[j].y + ceyes[j].height/4.2) );
             circle( color, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
-    
-            int& eye_x = eye_center.x;        
-            int& eye_y = eye_center.y;
-
-            rosdepth  = depth.at<uint16_t>(eye_y, eye_x); 
-
-          //  fs.open(filename, cv::FileStorage::APPEND);
-          //  fs << "depthVal " << rosdepth;
-          //  fs.release();
+            circle( color_resized, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
+            rosdepth  = depth.at<uint16_t>(eye_center.y, eye_center.x); 
           }
 
           end = chrono::high_resolution_clock::now();   
@@ -408,13 +418,14 @@ private:
           osf <<"Face Point: " << rosdepth << " mm";
 
           putText(color, osf.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
+          putText(color_resized, osf.str(), Point(20,85), font, sizeText, colorText, lineText,CV_AA);
         
           cout <<  "\n\n deltaT: " << deltaT << endl;
           kalman(deltaT, measurement);       //filter observation from kinect          
-        } 
-        imshow( "ROS Features Viewer", color );  
-        //end detectAndDisplay  
+        }   
       }
+        imshow( "ROS Features Viewer", color_resized ); 
+        //imshow( "Color_resized", color_resized ); 
 
       int key = cv::waitKey(1);
       switch(key & 0xFF)
@@ -440,107 +451,15 @@ private:
     cv::destroyAllWindows();
     cv::waitKey(100);
   }
-/*
-  cv::FileStorage fs; 
 
-  const String filename = "ROSFacePoints.yaml";
-
-  std::vector<Rect> faces;
-  Mat frame_gray, depth_gray;
-  const Size face_maxsize = Size(30, 30);
-  const double scaleFactor = 1.1;
-  const int minNeighbors = 6;
-  const int flags = 0;
-  double deltaT;
-
-  void detectAndDisplay( Mat detframe, Mat depth )
-  {
-    double fps = 0.0;
-    size_t frameCount = 0;
-
-    cvtColor( detframe, frame_gray, COLOR_BGR2GRAY );
-    equalizeHist( frame_gray, frame_gray );
-
-   //-- Detect faces    
-    face_cascade.detectMultiScale( frame_gray, faces, scaleFactor, minNeighbors, flags|CV_HAAR_SCALE_IMAGE, face_maxsize );
-
-    cout << "faces.size(): " << faces.size() << endl;
-    #pragma omp parallel for
-    for( size_t i = 0; i < faces.size(); ++i )
-    {    
-      std::chrono::time_point<std::chrono::high_resolution_clock> start, end;
-      start = chrono::high_resolution_clock::now();
-
-      Point vertex_one ( faces[i].x, faces[i].y);      
-      Point vertex_two ( faces[i].x + faces[i].width, faces[i].y + faces[i].height);
-      rectangle(detframe, vertex_one, vertex_two, Scalar(0, 255, 0), 2, 4, 0 );
-
-      Mat faceROI = frame_gray( faces[i] );
-      std::vector<Rect> eyes, noses;
-
-      eyes_cascade.detectMultiScale( faceROI, eyes, scaleFactor, minNeighbors, flags |CV_HAAR_SCALE_IMAGE, face_maxsize );
-      
-      #pragma omp parallel for
-      for( size_t j = 0; j < eyes.size(); ++j )
-      { 
-        cout << "eyes.size: " << eyes.size() << endl;
-        Point eye_center( faces[i].x + eyes[j].x + eyes[j].width/2, faces[i].y + eyes[j].y + eyes[j].height/2 );
-        circle( detframe, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
-    
-        int eye_x = eye_center.x;        
-        int eye_y = eye_center.y;
-
-        rosdepth  = depth.at<uint16_t>(eye_y, eye_x); 
-
-        fs.open(filename, cv::FileStorage::APPEND);
-        fs << "depthVal " << rosdepth;
-        fs.release();
-       }
-      
-      if(updateImage)
-      {
-        lock.lock();
-        color = this->color;
-        depth = this->depth;
-        updateImage = false;
-        lock.unlock();
-
-        ++frameCount;
-        end = chrono::high_resolution_clock::now();   
-        deltaT = chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
-        Mat measurement = Mat(1, 1, CV_32F, rosdepth);
-                
-        std::ostringstream oss;
-        std::ostringstream osf; 
-
-        if(elapsed >= 1)
-        {
-          fps = frameCount / elapsed;
-          osf.str(" ");
-          osf << "fps: " << fps << " ( " << elapsed / frameCount * 1000.0 << " ms)";
-          start = end;
-          frameCount = 0;
-        }
-        oss.str(" ");
-        oss <<"Face Point: " << rosdepth << " mm";
-
-        putText(detframe, oss.str(), Point(20,35), font, sizeText, colorText, lineText,CV_AA);
-        putText(detframe, osf.str(), Point(20,65), font, sizeText, colorText, lineText,CV_AA);
-        
-        cout <<  "\n\n deltaT: " << deltaT << endl;
-        kalman(deltaT, measurement);       //filter observation from kinect
-      }
-    } 
-    imshow( "ROS Features Viewer", detframe );    
-  }
-  */
   void kalman(float& deltaT, Mat& measurement)
   {
       //Make Q(k) a random walk
+
       float q11 = pow(deltaT, 4)/4.0 ;
-      float q12 = pow(deltaT, 2)/2.0 ;
-      float q21 = pow(deltaT, 2)/2.0 ;
-      float q22 = deltaT ;
+      float q12 = pow(deltaT, 3)/2.0 ;
+      float q21 = pow(deltaT, 3)/2.0 ;
+      float q22 = pow(deltaT, 2) ;
 
       KF.processNoiseCov = *(Mat_<float>(2,2) << q11, q12, q21, q22);
 
@@ -587,7 +506,7 @@ private:
     mkfifo(myrosfifo, 0666);                           
     /* create the FIFO (named pipe) */
     rosfd = open(myrosfifo, O_WRONLY/* | O_NONBLOCK*/);      
-    write(rosfd, &rosdepth, sizeof(rosdepth) );  
+    write(rosfd, &rosobs, sizeof(rosobs) );  
     close(rosfd);       
 
    //Measurement FIFO
