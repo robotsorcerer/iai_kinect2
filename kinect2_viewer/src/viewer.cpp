@@ -94,12 +94,12 @@ const int F = 5;      //Frame Size
 const int k = 3;      //Example Polynomial Order
 const double Fd = (double) F;        //sets the frame size for the savgol differentiation coefficients. This must be odd
 
-uint16_t rosdepth;
+uint16_t rosdepth;            
   
-const float Qt = 1500.0;
+const float Qt = 1500.0;          //cov matrices for kalman filter
 const float Rt = 30;
 
-const float Rt2 = 4.6325;
+const float Rt2 = 4.6325;         //cov matrix for kalman filter 2
 
 std::ostringstream oss;
 
@@ -107,10 +107,11 @@ std::ostringstream oss;
 void detectAndDisplay( Mat detframe, Mat depth );
 void talker(float rosobs, float rospred, float rosupd) ; 
 void kalman(float deltaT, Mat measurement);
-void kalman2(float& deltaT,float& rosupd);
-MatrixXi vander(const int F);
+//void kalman2(float& deltaT,float& rosupd);
+MatrixXi vander(const int F);     
 MatrixXf sgdiff(int k, double Fd);
 RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F, MatrixXf DIM);
+void savgol(float rosupd);
 
 class Receiver
 {
@@ -478,22 +479,13 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
     double fy = 0.5;
     int interpol=INTER_LINEAR;
 
+    const double scaleFactor = 1.2;
+    const int minNeighbors = 6;
+
+    const Size face_maxSize = Size(20, 20);
+    const Size face_minSize = Size(5, 5);
+
     begin = std::chrono::high_resolution_clock::now();
-
-    MatrixXi s = vander(F);        //Compute vandermonde matrix
-
-    cout << "\n Vandermonde Matrix: \n" << s  << endl;
-
-    MatrixXf B = sgdiff(k, Fd);
-
-    VectorXf x_on = VectorXf::LinSpaced(F, 940, 960);     //collect the first five values into a matrix
-
-    //To express as a real filtering operation, we shift x around the nth time instant
-    VectorXf x = VectorXf::LinSpaced(F, 900.0, 980.0);
-
-    RowVectorXf Filter = savgolfilt(x, x_on, k, F);
-
-    cout <<"\n\nFiltered values in the range \n" << x.transpose().eval() <<"\n are: \n" << Filter << endl;
 
     for(; running && ros::ok();)
     {
@@ -518,7 +510,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
           begin = now;
           frameCount = 0;
         }
-        cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
+        //cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
         double t = (double)getTickCount();
 
         Mat frame_gray;
@@ -531,12 +523,6 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
         //GpuMat frame_gray_gpu(frame_gray);                  //move grayed color image to gpu
         GpuMat frame_gray_gpu(gray_resized);                  //move grayed color image to gpu
         cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
-
-        const double scaleFactor = 1.2;
-        const int minNeighbors = 6;
-
-        const Size face_maxSize = Size(20, 20);
-        const Size face_minSize = Size(5, 5);
 
         //-- Detect faces    
         faces.create(1, 100, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
@@ -585,7 +571,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 
           for( int j = 0; j < eyes_detect; ++j )
           { 
-            Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/4.2), (cfaces[i].y + ceyes[j].y + ceyes[j].height/4.2) );
+            Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/6), (cfaces[i].y + ceyes[j].y + ceyes[j].height/6) );
             circle( color, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
             circle( color_resized, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
             rosdepth  = depth.at<uint16_t>(eye_center.y, eye_center.x); 
@@ -659,10 +645,11 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       float rosupd  = update.at<float>(0);
       float rosobs = measurement.at<float>(0); 
 
-      kalman2(deltaT, rosupd);
+      savgol(rosupd);         //apply savitzky golay to updated measurements
+    //  kalman2(deltaT, rosupd);
       talker(rosobs, rospred, rosupd) ;      //talk values in a named pipe
 
-        cv::FileStorage fx;
+      /*  cv::FileStorage fx;
         const String estimates = "ROSPrediction.yaml";
         fx.open(estimates, cv::FileStorage::APPEND);
         fx << "prediction" << rospred;
@@ -678,9 +665,49 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
         const String corrected = "ROSCorrected.yaml";
         fz.open(corrected, cv::FileStorage::APPEND);
         fz << "corrected" << rosobs;
-        fz.release(); 
+        fz.release(); */
+  }
+  
+  vector<float>updvects;
+ // Mat temp = *(Mat_<float>(F,1) << 700.0, 700.1, 700.2, 700.3, 700.4);
+
+  void savgol(float& rosupd)
+  {
+    //collect rosupd into an array of floats with five elements    
+
+   // MatrixXf B = sgdiff(k, Fd);
+  /*  temp.pop_back(1);
+    temp.push_back(rosupd);
+   
+
+    cout <<"\ntemp: " << temp << endl;
+ */
+    VectorXf x_on = VectorXf::LinSpaced(F, rosupd, rosupd);    //collect the first five values into a matrix
+
+    VectorXf x_shift = push_val(x_on, rosupd);
+
+    cout << "x_on: " << x_on.transpose().eval() <<
+            "\nx_shifted: " << x_shift.transpose().eval() << endl;
+
+    //To express as a real filtering operation, we shift x around the nth time instant
+    VectorXf x = VectorXf::LinSpaced(F, 700.0, 705.0);
+
+    RowVectorXf Filter = savgolfilt(x, x_on, k, F);
+
+    //cout <<"\n\nFiltered values in the range \n" << x_shift.transpose().eval() <<"\n are: \n" << Filter << endl;
   }
 
+  VectorXf push_val(VectorXf x, float rosupd)
+  {
+    int num = x.size();
+    for(int i = num; i < 0; ++i)
+    {
+      x(i) = x(i+1);
+      x(num - 1) = rosupd;
+    }
+    return x;
+  }
+/*
   void kalman2(float& deltaT,float& rosupd)
   {
       Mat measuresq = Mat(1, 1, CV_32F, rosupd);
@@ -727,7 +754,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       fc << "corrected2" << rosobs2;
       fc.release(); 
   }
-
+*/
   /* Communicate Kalman values in a pipe*/
   static inline int talker(float& rosobs, float& rospred, float& rosupd)
   {

@@ -7,6 +7,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wuninitialized -Winit-self -Wunused-fun
 # Additional warnings
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Warray-bounds -Wtype-limits -Wreturn-type -Wsequence-point -Wparentheses -Wmissing-braces -Wchar-subscripts -Wswitch -Wwrite-strings -Wenum-compare -Wempty-body -Wlogical-op")
 
+#set(CMAKE_PREFIX_PATH "/usr/lib/)
+#set(CMAKE_PREFIX_PATH /usr/lib/x86_64-linux-gnu)
+#set(CMAKE_PREFIX_PATH /usr/local/lib)
+
+OPTION(ENABLE_CXX11 "Enable C++11 support" ON)
+
 # Check for c++11 support
 INCLUDE(CheckCXXCompilerFlag)
 CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
@@ -19,6 +25,11 @@ ELSE()
   MESSAGE(ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
 ENDIF()
 
+if(CMAKE_VERSION VERSION_LESS "2.8.11")
+  #Add OpenCV headers location to your include paths
+  include_directories(${OpenCV_INCLUDE_DIRS})
+endif()
+
 set(MY_DIR ${kinect2_viewer_SOURCE_DIR})
 
 find_package(catkin REQUIRED COMPONENTS roscpp rostime std_msgs sensor_msgs message_filters cv_bridge image_transport compressed_image_transport compressed_depth_image_transport kinect2_bridge)
@@ -26,6 +37,7 @@ find_package(catkin REQUIRED COMPONENTS roscpp rostime std_msgs sensor_msgs mess
 ## System dependencies are found with CMake's conventions
 find_package(PkgConfig)
 find_package(OpenCV REQUIRED)
+#find_package(OpenCV 2.4.8 EXACT REQUIRED)
 pkg_check_modules( EIGEN3 REQUIRED eigen3 )
 find_package(OpenMP)
 find_package(PCL REQUIRED)
@@ -78,16 +90,28 @@ include_directories(include
 
 add_definitions(${EIGEN_DEFINITIONS})
 
+LINK_DIRECTORIES(${OpenCV_LIBS})
+
 add_executable(kinect2_viewer src/viewer.cpp)
-target_link_libraries(kinect2_viewer
-  ${catkin_LIBRARIES}
-  ${OpenCV_LIBRARIES}
-  ${PCL_LIBRARIES}
-  ${kinect2_bridge_LIBRARIES}
-)
-message(STATUS             "\n\nSavitzky include path")
+
+
+
+TARGET_LINK_LIBRARIES(kinect2_viewer ${OpenCV_LIBRARIES}
+                                     ${OpenCV_LIBS}
+                                     ${catkin_LIBRARIES}
+                                     ${PCL_LIBRARIES}
+                                     ${kinect2_bridge_LIBRARIES}      
+                      )
+
+message(STATUS             "\n\nSavitzky include path: \n\n")
 message(STATUS               "${MY_DIR}/include")
-message(STATUS "\n\nEigen3 include path: ${EIGEN3_INCLUDE_DIRS}\n")
+message(STATUS              "\n\nCATKIN LIBRARIES: \n\n  ${catkin_LIBRARIES}
+                             \n\n OpenCV LIBRARIES: \n\n ${OpenCV_LIBRARIES}
+                             \n\n PCL_LIBRARIES: \n\n    ${PCL_LIBRARIES}
+                             \n\n KINECT2_BRIDGE LIBRARIES: \n\n ${kinect2_bridge_LIBRARIES}")
+
+message(STATUS "\n\nEigen3 include path: \n\n${EIGEN3_INCLUDE_DIRS}\n")
+
 #############
 ## Install ##
 #############
