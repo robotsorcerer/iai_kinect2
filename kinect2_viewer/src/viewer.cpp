@@ -159,7 +159,6 @@ private:
 
   pcl::PointCloud<pcl::PointXYZRGBA>::Ptr cloud;
   pcl::PCDWriter writer;
-  //std::ostringstream oss;
   std::vector<int> params;
 
 public:
@@ -382,7 +381,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       for(int i = 0; i < n ; ++i)
       {        
         Bbuttflipped.row(i) = Bbutt.row(j);
-        j--;
+        --j;
       }
     }
     
@@ -397,7 +396,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       for(int i = 0; i < m; ++i)
       {
         x_onflipped.row(i) = x_on.row(j);
-        j--;
+        --j;
       }
     }
   
@@ -422,7 +421,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
     for(int i = 0; i < p ; ++i)
     {        
       Boff_flipped.row(i) = Boff.row(j);
-      j--;
+      --j;
     }
   }
 
@@ -440,7 +439,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       for(int i = 0; i < q; ++i)
       {
         x_offflipped.row(i) = x_on.row(j);
-        j--;
+        --j;
       }
     }
   VectorXf y_off = Boff_flipped * x_offflipped;   //This is the transient off
@@ -669,7 +668,6 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   }
   
   vector<float>updvects;
- // Mat temp = *(Mat_<float>(F,1) << 700.0, 700.1, 700.2, 700.3, 700.4);
 
   void savgol(float& rosupd)
   {
@@ -756,7 +754,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   }
 */
   /* Communicate Kalman values in a pipe*/
-  static inline int talker(float& rosobs, float& rospred, float& rosupd)
+void talker(float& rosobs, float& rospred, float& rosupd)
   {
     int rosfd, rosfm, rosfp, rosfu;
 
@@ -795,8 +793,6 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
     rosfu = open(rosupdfifo, O_WRONLY);           
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
-
-    return 0;
   }
 
   void cloudViewer()

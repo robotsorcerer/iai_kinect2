@@ -37,7 +37,6 @@ find_package(catkin REQUIRED COMPONENTS roscpp rostime std_msgs sensor_msgs mess
 ## System dependencies are found with CMake's conventions
 find_package(PkgConfig)
 find_package(OpenCV REQUIRED)
-#find_package(OpenCV 2.4.8 EXACT REQUIRED)
 pkg_check_modules( EIGEN3 REQUIRED eigen3 )
 find_package(OpenMP)
 find_package(PCL REQUIRED)
@@ -97,20 +96,22 @@ add_executable(kinect2_viewer src/viewer.cpp)
 
 
 TARGET_LINK_LIBRARIES(kinect2_viewer ${OpenCV_LIBRARIES}
-                                     ${OpenCV_LIBS}
+#                                     ${OpenCV_LIBS}
                                      ${catkin_LIBRARIES}
                                      ${PCL_LIBRARIES}
-                                     ${kinect2_bridge_LIBRARIES}      
+                                     ${kinect2_bridge_LIBRARIES}
+#                                     "/usr/lib/x86_64-linux-gnu/libOpenCL.so"      
                       )
 
-message(STATUS             "\n\nSavitzky include path: \n\n")
-message(STATUS               "${MY_DIR}/include")
-message(STATUS              "\n\nCATKIN LIBRARIES: \n\n  ${catkin_LIBRARIES}
-                             \n\n OpenCV LIBRARIES: \n\n ${OpenCV_LIBRARIES}
-                             \n\n PCL_LIBRARIES: \n\n    ${PCL_LIBRARIES}
-                             \n\n KINECT2_BRIDGE LIBRARIES: \n\n ${kinect2_bridge_LIBRARIES}")
+#message(STATUS             "\n\nSavitzky include path: \n\n")
+#message(STATUS               "${MY_DIR}/include")
+#message(STATUS              "\n\nCATKIN LIBRARIES: \n\n  ${catkin_LIBRARIES}
+#                             \n\n OpenCV LIBRARIES: \n\n ${OpenCV_LIBRARIES}
+#                             \n\n PCL_LIBRARIES: \n\n    ${PCL_LIBRARIES}
+#                             \n\n KINECT2_BRIDGE LIBRARIES: \n\n ${kinect2_bridge_LIBRARIES}")
 
-message(STATUS "\n\nEigen3 include path: \n\n${EIGEN3_INCLUDE_DIRS}\n")
+message(STATUS "\n\nEigen3 include path: ${EIGEN3_INCLUDE_DIRS}\n")
+message(STATUS "\n\nEigen3 Libraries: ${EIGEN3_LIBRARIES}\n")
 
 #############
 ## Install ##
