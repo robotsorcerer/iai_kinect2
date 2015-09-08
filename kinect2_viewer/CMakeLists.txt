@@ -96,11 +96,9 @@ add_executable(kinect2_viewer src/viewer.cpp)
 
 
 TARGET_LINK_LIBRARIES(kinect2_viewer ${OpenCV_LIBRARIES}
-#                                     ${OpenCV_LIBS}
                                      ${catkin_LIBRARIES}
                                      ${PCL_LIBRARIES}
-                                     ${kinect2_bridge_LIBRARIES}
-#                                     "/usr/lib/x86_64-linux-gnu/libOpenCL.so"      
+                                     ${kinect2_bridge_LIBRARIES}    
                       )
 
 #message(STATUS             "\n\nSavitzky include path: \n\n")

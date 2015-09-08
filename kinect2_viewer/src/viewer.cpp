@@ -105,7 +105,7 @@ std::ostringstream oss;
 
 /** Function Prototypes */
 void detectAndDisplay( Mat detframe, Mat depth );
-void talker(float rosobs, float rospred, float rosupd) ; 
+void talker(float& rosobs, float& rospred, float& rosupd) ; 
 void kalman(float deltaT, Mat measurement);
 //void kalman2(float& deltaT,float& rosupd);
 MatrixXi vander(const int F);     
@@ -524,7 +524,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
         cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
 
         //-- Detect faces    
-        faces.create(1, 100, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
+        faces.create(1, 10000, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
 
         int faces_detect = face_cascade_gpu.detectMultiScale(frame_gray_gpu, faces, face_maxSize, face_minSize, scaleFactor, minNeighbors);
 
@@ -570,10 +570,10 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 
           for( int j = 0; j < eyes_detect; ++j )
           { 
-            Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/6), (cfaces[i].y + ceyes[j].y + ceyes[j].height/6) );
+            Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/4), (cfaces[i].y + ceyes[j].y + ceyes[j].height/4) );
             circle( color, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
             circle( color_resized, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
-            rosdepth  = depth.at<uint16_t>(eye_center.y, eye_center.x); 
+            rosdepth  = (depth.at<uint16_t>(eye_center.y, eye_center.x) - 932);   //sync the two cames to xbox_values
           }
 
           end = chrono::high_resolution_clock::now();   
@@ -632,7 +632,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 
       KF.processNoiseCov *=Qt;
 
-      cout <<"measurement noise cov: " << KF.measurementNoiseCov << endl;
+      //cout <<"measurement noise cov: " << KF.measurementNoiseCov << endl;
 
       KF.transitionMatrix = *(Mat_<float>(2, 2) << 1, deltaT, 0, 1);
 
@@ -683,10 +683,10 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
     VectorXf x_on = VectorXf::LinSpaced(F, rosupd, rosupd);    //collect the first five values into a matrix
 
     VectorXf x_shift = push_val(x_on, rosupd);
-
+/*
     cout << "x_on: " << x_on.transpose().eval() <<
             "\nx_shifted: " << x_shift.transpose().eval() << endl;
-
+*/
     //To express as a real filtering operation, we shift x around the nth time instant
     VectorXf x = VectorXf::LinSpaced(F, 700.0, 705.0);
 
@@ -756,15 +756,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   /* Communicate Kalman values in a pipe*/
 void talker(float& rosobs, float& rospred, float& rosupd)
   {
-    int rosfd, rosfm, rosfp, rosfu;
-
-    const char * myrosfifo = "/tmp/myrosfifo";
-
-    mkfifo(myrosfifo, 0666);                           
-    /* create the FIFO (named pipe) */
-    rosfd = open(myrosfifo, O_WRONLY/* | O_NONBLOCK*/);      
-    write(rosfd, &rosobs, sizeof(rosobs) );  
-    close(rosfd);       
+    int rosfm, rosfp, rosfu;
 
    //Measurement FIFO
     const char * rosobsfifo = "/tmp/rosobsfifo";
@@ -782,17 +774,17 @@ void talker(float& rosobs, float& rospred, float& rosupd)
     write(rosfp, &rospred, sizeof(rospred) ); 
     close(rosfp);    
 
-    cout <<"depth: " << rosdepth <<
-            "   | rosobs: " << rosobs <<
-            "   | rospred: " << rospred <<
-            "   | rosupdate: " << rosupd << endl;    
-
     //Kalman Update FIFO
     const char * rosupdfifo = "/tmp/rosupdfifo";
     mkfifo(rosupdfifo, 0666);                       
     rosfu = open(rosupdfifo, O_WRONLY);           
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
+
+    cout <<"\ndepth: " << rosdepth <<
+          "   | rosobs: " << rosobs <<
+          "   | rospred: " << rospred <<
+          "   | rosupdate: " << rosupd << endl; 
   }
 
   void cloudViewer()
