@@ -105,8 +105,7 @@ std::ostringstream oss;
 
 /** Function Prototypes */
 void detectAndDisplay( Mat detframe, Mat depth );
-//void talker(Mat& rosobs, Mat& rospred, Mat& rosupd, Mat& rospred_error, Mat& rosest_error, Mat& rosgain);
-void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, float& rosest_error, float& rosgain);
+void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat Kk);
 void kalman(float deltaT, Mat measurement);
 //void kalman2(float& deltaT,float& rosupd);
 MatrixXi vander(const int F);     
@@ -649,9 +648,19 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       float rosest_error  = KF.errorCovPost.at<float>(0);
       float rosgain       = KF.gain.at<float>(0);
 
+      Mat Pkkm1 = KF.errorCovPre;
+      Mat Pkk = KF.errorCovPost;
+      Mat Kk = KF.gain;
+
+      cout << "\n\nx(k|k-1): " << prediction <<
+              "\n x(k|k): " << update <<
+              "\n P(k|k-1): " << KF.errorCovPre <<
+              "\n P(k|k): " << KF.errorCovPost <<
+              "\n K(k): " << KF.gain << endl;
+
       savgol(rosupd);         //apply savitzky golay to updated measurements
     //  kalman2(deltaT, rosupd);
-      talker(rosobs, rospred, rosupd, rospred_error, rosest_error, rosgain) ;      //talk values in a named pipe
+      talker(rosobs, prediction, update, Pkkm1, Pkk, Kk) ;      //talk values in a named pipe
 
       /*  cv::FileStorage fx;
         const String estimates = "ROSPrediction.yaml";
@@ -759,14 +768,33 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   }
 */
   /* Communicate Kalman values in a pipe*/
-void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, float& rosest_error, float& rosgain)
+void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat Kk)
   {
-    int rosfm, rosfp, rosfu;
-    int rosfpe, rosfee, rosfg;
+    int rosfm, rosfp, rosfp1, rosfu, rosfu1;                    //obs, predict, estimate fifos
+    int rosfpe, rosfpe1, rosfpe2, rosfpe3;                      //ros prediction error fifo
+    int rosfee, rosfee1, rosfee2, rosfee3;                      //ros estimate error fifo
+    int rosfg, rosfg1;                                                  //gain fifo
+
+    float rospred = prediction.at<float>(0);
+    float rospred1 = prediction.at<float>(1);
+    float rosupd  = update.at<float>(0);   
+    float rosupd1  = update.at<float>(1); 
+    float rosgain       = Kk.at<float>(0);  
+    float rosgain1       = Kk.at<float>(1);
+
+    float rospred_error = Pkkm1.at<float>(0, 0);
+    float rospred_error1 = Pkkm1.at<float>(0, 1);
+    float rospred_error2 = Pkkm1.at<float>(1, 0);
+    float rospred_error3 = Pkkm1.at<float>(1, 1);
+
+    float rosest_error  = Pkk.at<float>(0, 0);
+    float rosest_error1  = Pkk.at<float>(0, 1);
+    float rosest_error2  = Pkk.at<float>(1, 0);
+    float rosest_error3  = Pkk.at<float>(1, 1);
+
 
    //Measurement FIFO
     const char * rosobsfifo = "/tmp/rosobsfifo";
-
     mkfifo(rosobsfifo, 0666);                       
     rosfm = open(rosobsfifo, O_WRONLY);         
     write(rosfm, &rosobs, sizeof(rosobs) ); 
@@ -774,11 +802,16 @@ void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, 
 
     //Kalman Prediction FIFO
     const char * rospredfifo = "/tmp/rospredfifo";
-
     mkfifo(rospredfifo, 0666);                       
     rosfp = open(rospredfifo, O_WRONLY);          
     write(rosfp, &rospred, sizeof(rospred) ); 
     close(rosfp);    
+
+    const char * rospredfifo1 = "/tmp/rospredfifo1";
+    mkfifo(rospredfifo1, 0666);                       
+    rosfp1 = open(rospredfifo1, O_WRONLY);          
+    write(rosfp1, &rospred1, sizeof(rospred1) ); 
+    close(rosfp1); 
 
     //Kalman Update FIFO
     const char * rosupdfifo = "/tmp/rosupdfifo";
@@ -787,29 +820,74 @@ void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, 
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
 
+    const char * rosupdfifo1 = "/tmp/rosupdfifo1";
+    mkfifo(rosupdfifo1, 0666);                       
+    rosfu1 = open(rosupdfifo1, O_WRONLY);           
+    write(rosfu1, &rosupd1, sizeof(rosupd1) );   
+    close(rosfu1);
+
+    //Kalman gain  FIFO
+    const char * rosgainfifo = "/tmp/rosgainfifo";
+    mkfifo(rosgainfifo, 0666);                       
+    rosfg = open(rosgainfifo, O_WRONLY);           
+    write(rosfg, &rosgain, sizeof(rosgain) );   
+    close(rosfg);
+
+    const char * rosgainfifo1 = "/tmp/rosgainfifo1";
+    mkfifo(rosgainfifo1, 0666);                       
+    rosfg1 = open(rosgainfifo1, O_WRONLY);           
+    write(rosfg1, &rosgain1, sizeof(rosgain1) );   
+    close(rosfg1);
+
     //Kalman Prediction error FIFO
     const char * rosprederrorfifo = "/tmp/rosprederrorfifo";
-
     mkfifo(rosprederrorfifo, 0666);                       
     rosfpe = open(rosprederrorfifo, O_WRONLY);           
     write(rosfpe, &rospred_error, sizeof(rospred_error) );   
     close(rosfpe);
 
+    const char * rosprederrorfifo1 = "/tmp/rosprederrorfifo1";
+    mkfifo(rosprederrorfifo1, 0666);                       
+    rosfpe1 = open(rosprederrorfifo1, O_WRONLY);           
+    write(rosfpe1, &rospred_error1, sizeof(rospred_error1) );   
+    close(rosfpe1);
+
+    const char * rosprederrorfifo2 = "/tmp/rosprederrorfifo2";
+    mkfifo(rosprederrorfifo2, 0666);                       
+    rosfpe2 = open(rosprederrorfifo2, O_WRONLY);           
+    write(rosfpe2, &rospred_error2, sizeof(rospred_error2) );   
+    close(rosfpe2);
+
+    const char * rosprederrorfifo3 = "/tmp/rosprederrorfifo3";
+    mkfifo(rosprederrorfifo3, 0666);                       
+    rosfpe3 = open(rosprederrorfifo3, O_WRONLY);           
+    write(rosfpe3, &rospred_error3, sizeof(rospred_error3) );   
+    close(rosfpe3);
+
     //Kalman Estimation error FIFO
     const char * rosesterrorfifo = "/tmp/rosesterrorfifo";
-
     mkfifo(rosesterrorfifo, 0666);                       
     rosfee = open(rosesterrorfifo, O_WRONLY);           
     write(rosfee, &rosest_error, sizeof(rosest_error) );   
     close(rosfee);
 
-    //Kalman gain  FIFO
-    const char * rosgainfifo = "/tmp/rosgainfifo";
+    const char * rosesterrorfifo1 = "/tmp/rosesterrorfifo1";
+    mkfifo(rosesterrorfifo1, 0666);                       
+    rosfee1 = open(rosesterrorfifo1, O_WRONLY);           
+    write(rosfee1, &rosest_error1, sizeof(rosest_error1) );   
+    close(rosfee1);
 
-    mkfifo(rosgainfifo, 0666);                       
-    rosfg = open(rosgainfifo, O_WRONLY);           
-    write(rosfg, &rosgain, sizeof(rosgain) );   
-    close(rosfg);
+    const char * rosesterrorfifo2 = "/tmp/rosesterrorfifo2";
+    mkfifo(rosesterrorfifo2, 0666);                       
+    rosfee2 = open(rosesterrorfifo2, O_WRONLY);           
+    write(rosfee2, &rosest_error2, sizeof(rosest_error2) );   
+    close(rosfee2);
+
+    const char * rosesterrorfifo3 = "/tmp/rosesterrorfifo3";
+    mkfifo(rosesterrorfifo3, 0666);                       
+    rosfee3 = open(rosesterrorfifo3, O_WRONLY);           
+    write(rosfee3, &rosest_error3, sizeof(rosest_error3) );   
+    close(rosfee3);
 
     cout <<"\nrosobs: " << rosobs <<
           "   | rospred: " << rospred <<
