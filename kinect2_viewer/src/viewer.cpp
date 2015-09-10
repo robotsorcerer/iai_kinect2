@@ -105,7 +105,8 @@ std::ostringstream oss;
 
 /** Function Prototypes */
 void detectAndDisplay( Mat detframe, Mat depth );
-void talker(float& rosobs, float& rospred, float& rosupd) ; 
+//void talker(Mat& rosobs, Mat& rospred, Mat& rosupd, Mat& rospred_error, Mat& rosest_error, Mat& rosgain);
+void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, float& rosest_error, float& rosgain);
 void kalman(float deltaT, Mat measurement);
 //void kalman2(float& deltaT,float& rosupd);
 MatrixXi vander(const int F);     
@@ -509,7 +510,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
           begin = now;
           frameCount = 0;
         }
-        //cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
+        cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
         double t = (double)getTickCount();
 
         Mat frame_gray;
@@ -521,7 +522,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 
         //GpuMat frame_gray_gpu(frame_gray);                  //move grayed color image to gpu
         GpuMat frame_gray_gpu(gray_resized);                  //move grayed color image to gpu
-        cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
+        //cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
 
         //-- Detect faces    
         faces.create(1, 10000, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
@@ -644,9 +645,13 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       float rosupd  = update.at<float>(0);
       float rosobs = measurement.at<float>(0); 
 
+      float rospred_error = KF.errorCovPre.at<float>(0);
+      float rosest_error  = KF.errorCovPost.at<float>(0);
+      float rosgain       = KF.gain.at<float>(0);
+
       savgol(rosupd);         //apply savitzky golay to updated measurements
     //  kalman2(deltaT, rosupd);
-      talker(rosobs, rospred, rosupd) ;      //talk values in a named pipe
+      talker(rosobs, rospred, rosupd, rospred_error, rosest_error, rosgain) ;      //talk values in a named pipe
 
       /*  cv::FileStorage fx;
         const String estimates = "ROSPrediction.yaml";
@@ -754,9 +759,10 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   }
 */
   /* Communicate Kalman values in a pipe*/
-void talker(float& rosobs, float& rospred, float& rosupd)
+void talker(float& rosobs, float& rospred, float& rosupd, float& rospred_error, float& rosest_error, float& rosgain)
   {
     int rosfm, rosfp, rosfu;
+    int rosfpe, rosfee, rosfg;
 
    //Measurement FIFO
     const char * rosobsfifo = "/tmp/rosobsfifo";
@@ -781,10 +787,37 @@ void talker(float& rosobs, float& rospred, float& rosupd)
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
 
-    cout <<"\ndepth: " << rosdepth <<
-          "   | rosobs: " << rosobs <<
+    //Kalman Prediction error FIFO
+    const char * rosprederrorfifo = "/tmp/rosprederrorfifo";
+
+    mkfifo(rosprederrorfifo, 0666);                       
+    rosfpe = open(rosprederrorfifo, O_WRONLY);           
+    write(rosfpe, &rospred_error, sizeof(rospred_error) );   
+    close(rosfpe);
+
+    //Kalman Estimation error FIFO
+    const char * rosesterrorfifo = "/tmp/rosesterrorfifo";
+
+    mkfifo(rosesterrorfifo, 0666);                       
+    rosfee = open(rosesterrorfifo, O_WRONLY);           
+    write(rosfee, &rosest_error, sizeof(rosest_error) );   
+    close(rosfee);
+
+    //Kalman gain  FIFO
+    const char * rosgainfifo = "/tmp/rosgainfifo";
+
+    mkfifo(rosgainfifo, 0666);                       
+    rosfg = open(rosgainfifo, O_WRONLY);           
+    write(rosfg, &rosgain, sizeof(rosgain) );   
+    close(rosfg);
+
+    cout <<"\nrosobs: " << rosobs <<
           "   | rospred: " << rospred <<
           "   | rosupdate: " << rosupd << endl; 
+          
+    cout << "est_error: " << rosest_error<< 
+            " | rpred_error: " << rospred_error << 
+            " | gain: "<< rosgain<< endl;
   }
 
   void cloudViewer()
