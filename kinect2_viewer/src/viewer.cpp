@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include <fcntl.h>      //unix headers
-#include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #include <stdlib.h>
@@ -651,13 +651,13 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
       Mat Pkkm1 = KF.errorCovPre;
       Mat Pkk = KF.errorCovPost;
       Mat Kk = KF.gain;
-
+/*
       cout << "\n\nx(k|k-1): " << prediction <<
               "\n x(k|k): " << update <<
               "\n P(k|k-1): " << KF.errorCovPre <<
               "\n P(k|k): " << KF.errorCovPost <<
               "\n K(k): " << KF.gain << endl;
-
+*/
       savgol(rosupd);         //apply savitzky golay to updated measurements
     //  kalman2(deltaT, rosupd);
       talker(rosobs, prediction, update, Pkkm1, Pkk, Kk) ;      //talk values in a named pipe
