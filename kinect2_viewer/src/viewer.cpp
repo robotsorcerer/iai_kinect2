@@ -96,8 +96,8 @@ const double Fd = (double) F;        //sets the frame size for the savgol differ
 
 uint16_t rosdepth;            
   
-const float Qt = 1500.0;          //cov matrices for kalman filter
-const float Rt = 30;
+const float Qt = 2000; //1500.0;          //cov matrices for kalman filter
+const float Rt = 60;//30;
 
 const float Rt2 = 4.6325;         //cov matrix for kalman filter 2
 
@@ -768,7 +768,9 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     int rosfm, rosfp, rosfp1, rosfu, rosfu1;                    //obs, predict, estimate fifos
     int rosfpe, rosfpe1, rosfpe2, rosfpe3;                      //ros prediction error fifo
     int rosfee, rosfee1, rosfee2, rosfee3;                      //ros estimate error fifo
-    int rosfg, rosfg1;                                                  //gain fifo
+    int rosfg, rosfg1;  
+
+    int rosmat;                                                //gain fifo
 
     float rospred = prediction.at<float>(0);
     float rospred1 = prediction.at<float>(1);
@@ -794,6 +796,13 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     rosfm = open(rosobsfifo, O_WRONLY | O_NONBLOCK);         
     write(rosfm, &rosobs, sizeof(rosobs) ); 
     close(rosfm);        
+
+    //Test Mat Pipe
+    const char * rosmatfifo = "/tmp/rosmatfifo";
+    mkfifo(rosmatfifo, 0666);                       
+    rosmat = open(rosmatfifo, O_WRONLY | O_NONBLOCK);         
+    write(rosmat, &Pkk, 1024 ); 
+    close(rosmat); 
 
     //Kalman Prediction FIFO
     const char * rospredfifo = "/tmp/rospredfifo";
@@ -1140,7 +1149,7 @@ int main(int argc, char **argv)
   setIdentity(KF.measurementNoiseCov, Scalar::all(Rt));
   setIdentity(KF.errorCovPost, Scalar::all(1));
 
-  KF.statePost.at<float>(0) = 730;          //initialize kalman posteriori
+  KF.statePost.at<float>(0) = 687;          //initialize kalman posteriori
 
 //second kalman
   setIdentity(KF2.measurementMatrix);
