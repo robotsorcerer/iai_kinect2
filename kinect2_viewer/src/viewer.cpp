@@ -765,17 +765,13 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     int rosfp, rosfp1, rosfu, rosfu1;                    //obs, predict, estimate fifos
     int rosfpe, rosfpe1, rosfpe2, rosfpe3;                      //ros prediction error fifo
     int rosfee, rosfee1, rosfee2, rosfee3;                      //ros estimate error fifo
-    //int rosfg, rosfg1;  
-
-    //int rosmat;                                                //gain fifo
 
     float& rospred = prediction.at<float>(0);
     float& rospred1 = prediction.at<float>(1);
+
     float& rosupd          = update.at<float>(0);   
     float& rosupd1         = update.at<float>(1); 
-/*    float& rosgain         = Kk.at<float>(0);  
-    float& rosgain1        = Kk.at<float>(1);
-*/
+
     float& rospred_error   = Pkkm1.at<float>(0, 0);
     float& rospred_error1  = Pkkm1.at<float>(0, 1);
     float& rospred_error2  = Pkkm1.at<float>(1, 0);
@@ -786,14 +782,6 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     float& rosest_error2   = Pkk.at<float>(1, 0);
     float& rosest_error3   = Pkk.at<float>(1, 1);
 
-
-   //Measurement FIFO
-/*    const char * rosobsfifo = "/tmp/rosobsfifo";
-    mkfifo(rosobsfifo, 0666);                       
-    rosfm = open(rosobsfifo, O_WRONLY | O_NONBLOCK);         
-    write(rosfm, &rosobs, sizeof(rosobs) ); 
-    close(rosfm);        
-*/
     //Kalman Prediction FIFO
     const char * rospredfifo = "/tmp/rospredfifo";
     mkfifo(rospredfifo, 0666);                       
@@ -820,19 +808,6 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     write(rosfu1, &rosupd1, sizeof(rosupd1) );   
     close(rosfu1);
 
-/*    //Kalman gain  FIFO
-    const char * rosgainfifo = "/tmp/rosgainfifo";
-    mkfifo(rosgainfifo, 0666);                       
-    rosfg = open(rosgainfifo, O_WRONLY | O_NONBLOCK);           
-    write(rosfg, &rosgain, sizeof(rosgain) );   
-    close(rosfg);
-
-    const char * rosgainfifo1 = "/tmp/rosgainfifo1";
-    mkfifo(rosgainfifo1, 0666);                       
-    rosfg1 = open(rosgainfifo1, O_WRONLY | O_NONBLOCK);           
-    write(rosfg1, &rosgain1, sizeof(rosgain1) );   
-    close(rosfg1);
-*/
     //Kalman Prediction error FIFO
     const char * rosprederrorfifo = "/tmp/rosprederrorfifo";
     mkfifo(rosprederrorfifo, 0666);                       
@@ -1118,11 +1093,6 @@ int main(int argc, char **argv)
   {
     return 0;
   }
-
-  //load cpu cascades
-  face_cascade.load( face_cascade_name );
-  eyes_cascade.load( eyes_cascade_name );
-
   //load gpu cascades
   face_cascade_gpu.load( face_cascade_name );
   eyes_cascade_gpu.load( eyes_cascade_name );
