@@ -70,9 +70,6 @@ using namespace cv::gpu;
 const String face_cascade_name = "haarcascade_frontalface_alt.xml";
 const String eyes_cascade_name = "haarcascade_eye.xml";
 
-CascadeClassifier face_cascade;
-CascadeClassifier eyes_cascade;
-
 CascadeClassifier_GPU face_cascade_gpu;
 CascadeClassifier_GPU eyes_cascade_gpu;
 
@@ -765,20 +762,20 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
   /* Communicate Kalman values in a pipe*/
 void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat Kk)
   {
-    int rosfm, rosfp, rosfp1, rosfu, rosfu1;                    //obs, predict, estimate fifos
+    int rosfp, rosfp1, rosfu, rosfu1;                    //obs, predict, estimate fifos
     int rosfpe, rosfpe1, rosfpe2, rosfpe3;                      //ros prediction error fifo
     int rosfee, rosfee1, rosfee2, rosfee3;                      //ros estimate error fifo
-    int rosfg, rosfg1;  
+    //int rosfg, rosfg1;  
 
-    int rosmat;                                                //gain fifo
+    //int rosmat;                                                //gain fifo
 
     float& rospred = prediction.at<float>(0);
     float& rospred1 = prediction.at<float>(1);
     float& rosupd          = update.at<float>(0);   
     float& rosupd1         = update.at<float>(1); 
-    float& rosgain         = Kk.at<float>(0);  
+/*    float& rosgain         = Kk.at<float>(0);  
     float& rosgain1        = Kk.at<float>(1);
-
+*/
     float& rospred_error   = Pkkm1.at<float>(0, 0);
     float& rospred_error1  = Pkkm1.at<float>(0, 1);
     float& rospred_error2  = Pkkm1.at<float>(1, 0);
@@ -791,18 +788,11 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
 
 
    //Measurement FIFO
-    const char * rosobsfifo = "/tmp/rosobsfifo";
+/*    const char * rosobsfifo = "/tmp/rosobsfifo";
     mkfifo(rosobsfifo, 0666);                       
     rosfm = open(rosobsfifo, O_WRONLY | O_NONBLOCK);         
     write(rosfm, &rosobs, sizeof(rosobs) ); 
     close(rosfm);        
-/*
-    //Test Mat Pipe
-    const char * rosmatfifo = "/tmp/rosmatfifo";
-    mkfifo(rosmatfifo, 0666);                       
-    rosmat = open(rosmatfifo, O_WRONLY | O_NONBLOCK);         
-    write(rosmat, &Pkk, 1024 ); 
-    close(rosmat); 
 */
     //Kalman Prediction FIFO
     const char * rospredfifo = "/tmp/rospredfifo";
@@ -830,7 +820,7 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     write(rosfu1, &rosupd1, sizeof(rosupd1) );   
     close(rosfu1);
 
-    //Kalman gain  FIFO
+/*    //Kalman gain  FIFO
     const char * rosgainfifo = "/tmp/rosgainfifo";
     mkfifo(rosgainfifo, 0666);                       
     rosfg = open(rosgainfifo, O_WRONLY | O_NONBLOCK);           
@@ -842,7 +832,7 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     rosfg1 = open(rosgainfifo1, O_WRONLY | O_NONBLOCK);           
     write(rosfg1, &rosgain1, sizeof(rosgain1) );   
     close(rosfg1);
-
+*/
     //Kalman Prediction error FIFO
     const char * rosprederrorfifo = "/tmp/rosprederrorfifo";
     mkfifo(rosprederrorfifo, 0666);                       
@@ -898,8 +888,7 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
           "   | rosupdate: " << rosupd << endl; 
           
     cout << "est_error: " << rosest_error<< 
-            " | rpred_error: " << rospred_error << 
-            " | gain: "<< rosgain<< endl;
+            " | rpred_error: " << rospred_error << endl;
   }
 
   void cloudViewer()
