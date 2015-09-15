@@ -772,22 +772,22 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
 
     int rosmat;                                                //gain fifo
 
-    float rospred = prediction.at<float>(0);
-    float rospred1 = prediction.at<float>(1);
-    float rosupd          = update.at<float>(0);   
-    float rosupd1         = update.at<float>(1); 
-    float rosgain         = Kk.at<float>(0);  
-    float rosgain1        = Kk.at<float>(1);
+    float& rospred = prediction.at<float>(0);
+    float& rospred1 = prediction.at<float>(1);
+    float& rosupd          = update.at<float>(0);   
+    float& rosupd1         = update.at<float>(1); 
+    float& rosgain         = Kk.at<float>(0);  
+    float& rosgain1        = Kk.at<float>(1);
 
-    float rospred_error   = Pkkm1.at<float>(0, 0);
-    float rospred_error1  = Pkkm1.at<float>(0, 1);
-    float rospred_error2  = Pkkm1.at<float>(1, 0);
-    float rospred_error3  = Pkkm1.at<float>(1, 1);
+    float& rospred_error   = Pkkm1.at<float>(0, 0);
+    float& rospred_error1  = Pkkm1.at<float>(0, 1);
+    float& rospred_error2  = Pkkm1.at<float>(1, 0);
+    float& rospred_error3  = Pkkm1.at<float>(1, 1);
 
-    float rosest_error    = Pkk.at<float>(0, 0);
-    float rosest_error1   = Pkk.at<float>(0, 1);
-    float rosest_error2   = Pkk.at<float>(1, 0);
-    float rosest_error3   = Pkk.at<float>(1, 1);
+    float& rosest_error    = Pkk.at<float>(0, 0);
+    float& rosest_error1   = Pkk.at<float>(0, 1);
+    float& rosest_error2   = Pkk.at<float>(1, 0);
+    float& rosest_error3   = Pkk.at<float>(1, 1);
 
 
    //Measurement FIFO
@@ -796,14 +796,14 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     rosfm = open(rosobsfifo, O_WRONLY | O_NONBLOCK);         
     write(rosfm, &rosobs, sizeof(rosobs) ); 
     close(rosfm);        
-
+/*
     //Test Mat Pipe
     const char * rosmatfifo = "/tmp/rosmatfifo";
     mkfifo(rosmatfifo, 0666);                       
     rosmat = open(rosmatfifo, O_WRONLY | O_NONBLOCK);         
     write(rosmat, &Pkk, 1024 ); 
     close(rosmat); 
-
+*/
     //Kalman Prediction FIFO
     const char * rospredfifo = "/tmp/rospredfifo";
     mkfifo(rospredfifo, 0666);                       
