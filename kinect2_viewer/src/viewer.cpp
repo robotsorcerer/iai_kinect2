@@ -786,76 +786,76 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     //Kalman Prediction FIFO
     char * rospredfifo = "/tmp/rospredfifo";
     mkfifo(rospredfifo, 0666);                       
-    rosfp = open(rospredfifo, O_WRONLY | O_NONBLOCK);          
+    rosfp = open(rospredfifo, O_WRONLY);          
     write(rosfp, &rospred, sizeof(rospred) ); 
     close(rosfp);    
 
     char * rospredfifo1 = "/tmp/rospredfifo1";
     mkfifo(rospredfifo1, 0666);                       
-    rosfp1 = open(rospredfifo1, O_WRONLY | O_NONBLOCK);          
+    rosfp1 = open(rospredfifo1, O_WRONLY);          
     write(rosfp1, &rospred1, sizeof(rospred1) ); 
     close(rosfp1); 
 
     //Kalman Update FIFO
     char * rosupdfifo = "/tmp/rosupdfifo";
     mkfifo(rosupdfifo, 0666);                       
-    rosfu = open(rosupdfifo, O_WRONLY | O_NONBLOCK);           
+    rosfu = open(rosupdfifo, O_WRONLY);           
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
 
     char * rosupdfifo1 = "/tmp/rosupdfifo1";
     mkfifo(rosupdfifo1, 0666);                       
-    rosfu1 = open(rosupdfifo1, O_WRONLY | O_NONBLOCK);           
+    rosfu1 = open(rosupdfifo1, O_WRONLY);           
     write(rosfu1, &rosupd1, sizeof(rosupd1) );   
     close(rosfu1);
 
     //Kalman Prediction error FIFO
     char * rosprederrorfifo = "/tmp/rosprederrorfifo";
     mkfifo(rosprederrorfifo, 0666);                       
-    rosfpe = open(rosprederrorfifo, O_WRONLY | O_NONBLOCK);           
+    rosfpe = open(rosprederrorfifo, O_WRONLY);           
     write(rosfpe, &rospred_error, sizeof(rospred_error) );   
     close(rosfpe);
 
     char * rosprederrorfifo1 = "/tmp/rosprederrorfifo1";
     mkfifo(rosprederrorfifo1, 0666);                       
-    rosfpe1 = open(rosprederrorfifo1, O_WRONLY | O_NONBLOCK);           
+    rosfpe1 = open(rosprederrorfifo1, O_WRONLY);           
     write(rosfpe1, &rospred_error1, sizeof(rospred_error1) );   
     close(rosfpe1);
 
     char * rosprederrorfifo2 = "/tmp/rosprederrorfifo2";
     mkfifo(rosprederrorfifo2, 0666);                       
-    rosfpe2 = open(rosprederrorfifo2, O_WRONLY | O_NONBLOCK);           
+    rosfpe2 = open(rosprederrorfifo2, O_WRONLY);           
     write(rosfpe2, &rospred_error2, sizeof(rospred_error2) );   
     close(rosfpe2);
 
     char * rosprederrorfifo3 = "/tmp/rosprederrorfifo3";
     mkfifo(rosprederrorfifo3, 0666);                       
-    rosfpe3 = open(rosprederrorfifo3, O_WRONLY | O_NONBLOCK);           
+    rosfpe3 = open(rosprederrorfifo3, O_WRONLY);           
     write(rosfpe3, &rospred_error3, sizeof(rospred_error3) );   
     close(rosfpe3);
 
     //Kalman Estimation error FIFO
     char * rosesterrorfifo = "/tmp/rosesterrorfifo";
     mkfifo(rosesterrorfifo, 0666);                       
-    rosfee = open(rosesterrorfifo, O_WRONLY | O_NONBLOCK);           
+    rosfee = open(rosesterrorfifo, O_WRONLY);           
     write(rosfee, &rosest_error, sizeof(rosest_error) );   
     close(rosfee);
 
     char * rosesterrorfifo1 = "/tmp/rosesterrorfifo1";
     mkfifo(rosesterrorfifo1, 0666);                       
-    rosfee1 = open(rosesterrorfifo1, O_WRONLY | O_NONBLOCK);           
+    rosfee1 = open(rosesterrorfifo1, O_WRONLY);           
     write(rosfee1, &rosest_error1, sizeof(rosest_error1) );   
     close(rosfee1);
 
     char * rosesterrorfifo2 = "/tmp/rosesterrorfifo2";
     mkfifo(rosesterrorfifo2, 0666);                       
-    rosfee2 = open(rosesterrorfifo2, O_WRONLY | O_NONBLOCK);           
+    rosfee2 = open(rosesterrorfifo2, O_WRONLY);           
     write(rosfee2, &rosest_error2, sizeof(rosest_error2) );   
     close(rosfee2);
 
     char * rosesterrorfifo3 = "/tmp/rosesterrorfifo3";
     mkfifo(rosesterrorfifo3, 0666);                       
-    rosfee3 = open(rosesterrorfifo3, O_WRONLY | O_NONBLOCK);           
+    rosfee3 = open(rosesterrorfifo3, O_WRONLY);           
     write(rosfee3, &rosest_error3, sizeof(rosest_error3) );   
     close(rosfee3);
 
