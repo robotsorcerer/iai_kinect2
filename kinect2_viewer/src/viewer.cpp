@@ -783,76 +783,76 @@ void talker(float& rosobs, Mat prediction, Mat update, Mat Pkkm1, Mat Pkk, Mat K
     float& rosest_error3   = Pkk.at<float>(1, 1);
 
     //Kalman Prediction FIFO
-    const char * rospredfifo = "/tmp/rospredfifo";
+    char * rospredfifo = "/tmp/rospredfifo";
     mkfifo(rospredfifo, 0666);                       
     rosfp = open(rospredfifo, O_WRONLY | O_NONBLOCK);          
     write(rosfp, &rospred, sizeof(rospred) ); 
     close(rosfp);    
 
-    const char * rospredfifo1 = "/tmp/rospredfifo1";
+    char * rospredfifo1 = "/tmp/rospredfifo1";
     mkfifo(rospredfifo1, 0666);                       
     rosfp1 = open(rospredfifo1, O_WRONLY | O_NONBLOCK);          
     write(rosfp1, &rospred1, sizeof(rospred1) ); 
     close(rosfp1); 
 
     //Kalman Update FIFO
-    const char * rosupdfifo = "/tmp/rosupdfifo";
+    char * rosupdfifo = "/tmp/rosupdfifo";
     mkfifo(rosupdfifo, 0666);                       
     rosfu = open(rosupdfifo, O_WRONLY | O_NONBLOCK);           
     write(rosfu, &rosupd, sizeof(rosupd) );   
     close(rosfu);
 
-    const char * rosupdfifo1 = "/tmp/rosupdfifo1";
+    char * rosupdfifo1 = "/tmp/rosupdfifo1";
     mkfifo(rosupdfifo1, 0666);                       
     rosfu1 = open(rosupdfifo1, O_WRONLY | O_NONBLOCK);           
     write(rosfu1, &rosupd1, sizeof(rosupd1) );   
     close(rosfu1);
 
     //Kalman Prediction error FIFO
-    const char * rosprederrorfifo = "/tmp/rosprederrorfifo";
+    char * rosprederrorfifo = "/tmp/rosprederrorfifo";
     mkfifo(rosprederrorfifo, 0666);                       
     rosfpe = open(rosprederrorfifo, O_WRONLY | O_NONBLOCK);           
     write(rosfpe, &rospred_error, sizeof(rospred_error) );   
     close(rosfpe);
 
-    const char * rosprederrorfifo1 = "/tmp/rosprederrorfifo1";
+    char * rosprederrorfifo1 = "/tmp/rosprederrorfifo1";
     mkfifo(rosprederrorfifo1, 0666);                       
     rosfpe1 = open(rosprederrorfifo1, O_WRONLY | O_NONBLOCK);           
     write(rosfpe1, &rospred_error1, sizeof(rospred_error1) );   
     close(rosfpe1);
 
-    const char * rosprederrorfifo2 = "/tmp/rosprederrorfifo2";
+    char * rosprederrorfifo2 = "/tmp/rosprederrorfifo2";
     mkfifo(rosprederrorfifo2, 0666);                       
     rosfpe2 = open(rosprederrorfifo2, O_WRONLY | O_NONBLOCK);           
     write(rosfpe2, &rospred_error2, sizeof(rospred_error2) );   
     close(rosfpe2);
 
-    const char * rosprederrorfifo3 = "/tmp/rosprederrorfifo3";
+    char * rosprederrorfifo3 = "/tmp/rosprederrorfifo3";
     mkfifo(rosprederrorfifo3, 0666);                       
     rosfpe3 = open(rosprederrorfifo3, O_WRONLY | O_NONBLOCK);           
     write(rosfpe3, &rospred_error3, sizeof(rospred_error3) );   
     close(rosfpe3);
 
     //Kalman Estimation error FIFO
-    const char * rosesterrorfifo = "/tmp/rosesterrorfifo";
+    char * rosesterrorfifo = "/tmp/rosesterrorfifo";
     mkfifo(rosesterrorfifo, 0666);                       
     rosfee = open(rosesterrorfifo, O_WRONLY | O_NONBLOCK);           
     write(rosfee, &rosest_error, sizeof(rosest_error) );   
     close(rosfee);
 
-    const char * rosesterrorfifo1 = "/tmp/rosesterrorfifo1";
+    char * rosesterrorfifo1 = "/tmp/rosesterrorfifo1";
     mkfifo(rosesterrorfifo1, 0666);                       
     rosfee1 = open(rosesterrorfifo1, O_WRONLY | O_NONBLOCK);           
     write(rosfee1, &rosest_error1, sizeof(rosest_error1) );   
     close(rosfee1);
 
-    const char * rosesterrorfifo2 = "/tmp/rosesterrorfifo2";
+    char * rosesterrorfifo2 = "/tmp/rosesterrorfifo2";
     mkfifo(rosesterrorfifo2, 0666);                       
     rosfee2 = open(rosesterrorfifo2, O_WRONLY | O_NONBLOCK);           
     write(rosfee2, &rosest_error2, sizeof(rosest_error2) );   
     close(rosfee2);
 
-    const char * rosesterrorfifo3 = "/tmp/rosesterrorfifo3";
+    char * rosesterrorfifo3 = "/tmp/rosesterrorfifo3";
     mkfifo(rosesterrorfifo3, 0666);                       
     rosfee3 = open(rosesterrorfifo3, O_WRONLY | O_NONBLOCK);           
     write(rosfee3, &rosest_error3, sizeof(rosest_error3) );   
