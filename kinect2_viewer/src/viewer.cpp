@@ -359,15 +359,15 @@ MatrixXf sgdiff(int k, double Fd)
 
 RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 {  
-  Matrix4f DIM = Matrix4f::Zero();        //initialize DIM as a matrix of zeros if it is not supplied
-  int siz = x.size();       //Reshape depth values by working along the first non-singleton dimension
+  /*Matrix4f DIM = Matrix4f::Zero();        //initialize DIM as a matrix of zeros if it is not supplied
+  int siz = x.size();       //Reshape depth values by working along the first non-singleton dimension*/
 
   //Find leading singleton dimensions
   
   MatrixXf B = sgdiff(k, Fd);       //retrieve matrix B
 
   /*Transient On*/
-  int id_size = (F+1)/2 - 1;
+  //int id_size = (F+1)/2 - 1;
   MatrixXf Bbutt = B.bottomLeftCorner((F-1)/2, B.cols());
 
   int n = Bbutt.rows();
@@ -460,15 +460,15 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
 
   void imageViewer()
   {
-    cv::Mat color, depth, depthDisp;
+    cv::Mat color, depth, depthDisp/*, combined*/;
 
     std::chrono::time_point<std::chrono::high_resolution_clock> begin, now;    
     size_t frameCount = 0;
     double fps = 0;
     std::ostringstream oss;
 
-    cv::namedWindow("ROS Features Viewer");
-    //cv::namedWindow("Color_resized");
+    cv::namedWindow("ROS Features Viewer");        
+    
     oss << "starting...";
 
     Size dsize;
@@ -507,6 +507,14 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
           begin = now;
           frameCount = 0;
         }
+/*
+    dispDepth(depth, depthDisp, 12000.0f);
+    combine(color, depthDisp, combined);
+    //combined = color;
+
+    cv::putText(combined, oss.str(), pos, font, sizeText, colorText, lineText, CV_AA);
+    cv::imshow("Image Viewer", combined);
+*/
         cv::putText(color, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);        
         double t = (double)getTickCount();
 
@@ -517,9 +525,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
         resize(frame_gray, gray_resized, Size(), fx, fy, interpol);
         resize(color, color_resized, Size(), fx, fy, interpol);         //for opencv window
 
-        //GpuMat frame_gray_gpu(frame_gray);                  //move grayed color image to gpu
         GpuMat frame_gray_gpu(gray_resized);                  //move grayed color image to gpu
-        //cv::putText(color_resized, oss.str(), Point(20, 55), font, sizeText, colorText, lineText, CV_AA);
 
         //-- Detect faces    
         faces.create(1, 10000, cv::DataType<cv::Rect>::type);   //preallocate gpu faces
@@ -571,7 +577,7 @@ RowVectorXf savgolfilt(VectorXf x, VectorXf x_on, int k, int F)
             Point eye_center( (cfaces[i].x + ceyes[j].x + ceyes[j].width/4), (cfaces[i].y + ceyes[j].y + ceyes[j].height/4) );
             circle( color, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
             circle( color_resized, eye_center, 4.0, Scalar(255,255,255), CV_FILLED, 8, 0); 
-            rosdepth  = (depth.at<uint16_t>(eye_center.y, eye_center.x) - 932 - 170);   //sync the two cames to xbox_values
+            rosdepth  = (depth.at<uint16_t>(eye_center.y, eye_center.x) /*- 932 - 170*/);   //sync the two cames to xbox_values
           }
 
           end = chrono::high_resolution_clock::now();   
